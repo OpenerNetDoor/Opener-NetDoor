@@ -1,0 +1,16 @@
+{$DOMAIN} {
+  encode zstd gzip
+
+  @api path /v1/*
+  reverse_proxy @api api-gateway:8080
+
+  @panel path /panel* /_next*
+  reverse_proxy @panel admin-web:3000
+
+  handle {
+    respond "Opener NetDoor edge is running" 200
+  }
+
+  tls {$LETSENCRYPT_EMAIL}
+}
+

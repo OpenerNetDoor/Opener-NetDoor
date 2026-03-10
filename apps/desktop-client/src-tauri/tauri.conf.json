@@ -1,0 +1,19 @@
+{
+  "$schema": "https://schema.tauri.app/config/2",
+  "productName": "Opener NetDoor Client",
+  "version": "0.1.0",
+  "identifier": "com.openernetdoor.client",
+  "build": {
+    "frontendDist": "../dist",
+    "devUrl": "http://localhost:5173"
+  },
+  "app": {
+    "windows": [
+      {
+        "title": "Opener NetDoor Client",
+        "width": 1100,
+        "height": 760
+      }
+    ]
+  }
+}

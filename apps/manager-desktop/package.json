@@ -1,0 +1,24 @@
+{
+    "name":  "@opener-netdoor/manager-desktop",
+    "version":  "0.1.0",
+    "private":  true,
+    "scripts":  {
+                    "dev":  "vite",
+                    "build":  "vite build",
+                    "tauri:dev":  "tauri dev",
+                    "tauri:build":  "tauri build"
+                },
+    "dependencies":  {
+                         "react":  "19.0.0",
+                         "react-dom":  "19.0.0"
+                     },
+    "devDependencies":  {
+                            "@tauri-apps/cli":  "2.2.5",
+                            "@vitejs/plugin-react":  "4.3.4",
+                            "typescript":  "5.7.3",
+                            "vite":  "6.1.0",
+                            "@types/react":  "19.0.10",
+                            "@types/react-dom":  "19.0.4"
+                        }
+}
+

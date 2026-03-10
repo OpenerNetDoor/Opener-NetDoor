@@ -1,0 +1,61 @@
+services:
+  caddy:
+    image: caddy:2.8-alpine
+    restart: unless-stopped
+    ports:
+      - "80:80"
+      - "443:443"
+    volumes:
+      - ./caddy/Caddyfile:/etc/caddy/Caddyfile:ro
+      - caddy_data:/data
+      - caddy_config:/config
+    depends_on:
+      - api-gateway
+      - admin-web
+
+  admin-web:
+    image: ghcr.io/opener-netdoor/opener-netdoor-admin-web:0.1.0
+    restart: unless-stopped
+    environment:
+      NODE_ENV: production
+
+  api-gateway:
+    image: ghcr.io/opener-netdoor/opener-netdoor-api-gateway:0.1.0
+    restart: unless-stopped
+    env_file:
+      - ./env/prod.env
+    depends_on:
+      - core-platform
+
+  core-platform:
+    image: ghcr.io/opener-netdoor/opener-netdoor-core-platform:0.1.0
+    restart: unless-stopped
+    env_file:
+      - ./env/prod.env
+    depends_on:
+      - postgres
+      - redis
+      - nats
+
+  postgres:
+    image: postgres:16-alpine
+    restart: unless-stopped
+    env_file:
+      - ./env/prod.env
+    volumes:
+      - pgdata:/var/lib/postgresql/data
+      - ../../ops/migrations:/docker-entrypoint-initdb.d:ro
+
+  redis:
+    image: redis:7-alpine
+    restart: unless-stopped
+
+  nats:
+    image: nats:2.10-alpine
+    restart: unless-stopped
+    command: ["-js"]
+
+volumes:
+  pgdata:
+  caddy_data:
+  caddy_config:

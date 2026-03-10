@@ -1,0 +1,872 @@
+openapi: 3.1.0
+info:
+  title: Opener NetDoor Public and Admin API
+  version: 1.3.0
+servers:
+  - url: https://api.example.com
+paths:
+  /v1/health:
+    get:
+      summary: Health check
+      responses:
+        '200':
+          description: OK
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ok
+  /v1/ready:
+    get:
+      summary: Readiness check
+      responses:
+        '200':
+          description: Ready
+          content:
+            application/json:
+              schema:
+                type: object
+                properties:
+                  status:
+                    type: string
+                    example: ready
+  /v1/admin/tenants:
+    get:
+      summary: List tenants
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: Tenant list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantListResponse'
+    post:
+      summary: Create tenant
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateTenantRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Tenant'
+  /v1/admin/users:
+    get:
+      summary: List users in tenant
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: User list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserListResponse'
+    post:
+      summary: Create user
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateUserRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /v1/admin/access-keys:
+    get:
+      summary: List access keys
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: user_id
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+        - $ref: '#/components/parameters/Status'
+      responses:
+        '200':
+          description: Access key list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKeyListResponse'
+    post:
+      summary: Create access key
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateAccessKeyRequest'
+      responses:
+        '201':
+          description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKey'
+    delete:
+      summary: Revoke access key
+      security:
+        - bearerAuth: [admin:write]
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AccessKey'
+  /v1/admin/policies/tenants:
+    get:
+      summary: List tenant policies or get one by tenant_id
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Tenant policy list or single item
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/TenantPolicyListResponse'
+                  - $ref: '#/components/schemas/TenantPolicy'
+    put:
+      summary: Create or update tenant policy
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetTenantPolicyRequest'
+      responses:
+        '200':
+          description: Upserted tenant policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/TenantPolicy'
+  /v1/admin/policies/users:
+    get:
+      summary: List user policy overrides or get one by tenant_id+user_id
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: user_id
+          schema:
+            type: string
+            format: uuid
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: User policy list or single item
+          content:
+            application/json:
+              schema:
+                oneOf:
+                  - $ref: '#/components/schemas/UserPolicyOverrideListResponse'
+                  - $ref: '#/components/schemas/UserPolicyOverride'
+    put:
+      summary: Create or update user policy override
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/SetUserPolicyOverrideRequest'
+      responses:
+        '200':
+          description: Upserted user policy override
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserPolicyOverride'
+  /v1/admin/policies/effective:
+    get:
+      summary: Get effective policy for tenant/user
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: user_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Effective policy
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/EffectivePolicy'
+  /v1/admin/devices/register:
+    post:
+      summary: Register or refresh a device with policy enforcement
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterDeviceRequest'
+      responses:
+        '201':
+          description: Device registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Device'
+  /v1/admin/nodes:
+    get:
+      summary: List nodes by tenant
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: status
+          schema:
+            type: string
+            enum: [pending, active, stale, offline, revoked]
+        - $ref: '#/components/parameters/Limit'
+        - $ref: '#/components/parameters/Offset'
+      responses:
+        '200':
+          description: Node list
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeListResponse'
+  /v1/admin/nodes/register:
+    post:
+      summary: Register node with signed identity
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RegisterNodeRequest'
+      responses:
+        '201':
+          description: Node registered
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeRegistrationResult'
+  /v1/admin/nodes/heartbeat:
+    post:
+      summary: Node heartbeat with signature verification
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeHeartbeatRequest'
+      responses:
+        '200':
+          description: Heartbeat accepted
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+  /v1/admin/nodes/provisioning:
+    get:
+      summary: Resolve provisioning contract for node
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: node_id
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: node_key_id
+          schema:
+            type: string
+      responses:
+        '200':
+          description: Provisioning contract
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/NodeProvisioningContract'
+components:
+  securitySchemes:
+    bearerAuth:
+      type: http
+      scheme: bearer
+      bearerFormat: JWT
+  parameters:
+    Limit:
+      in: query
+      name: limit
+      schema:
+        type: integer
+        minimum: 1
+        maximum: 100
+        default: 20
+    Offset:
+      in: query
+      name: offset
+      schema:
+        type: integer
+        minimum: 0
+        default: 0
+    Status:
+      in: query
+      name: status
+      schema:
+        type: string
+  schemas:
+    Tenant:
+      type: object
+      required: [id, name, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        name:
+          type: string
+        status:
+          type: string
+          enum: [active, suspended]
+        created_at:
+          type: string
+          format: date-time
+    TenantListResponse:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Tenant'
+        limit:
+          type: integer
+        offset:
+          type: integer
+    CreateTenantRequest:
+      type: object
+      required: [name]
+      properties:
+        name:
+          type: string
+          minLength: 1
+    User:
+      type: object
+      required: [id, tenant_id, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        status:
+          type: string
+          enum: [active, blocked]
+        note:
+          type: string
+        created_at:
+          type: string
+          format: date-time
+    UserListResponse:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/User'
+        limit:
+          type: integer
+        offset:
+          type: integer
+    CreateUserRequest:
+      type: object
+      required: [tenant_id, email]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        email:
+          type: string
+          format: email
+        note:
+          type: string
+          maxLength: 500
+    AccessKey:
+      type: object
+      required: [id, tenant_id, user_id, key_type, secret_ref, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        key_type:
+          type: string
+          enum: [vless, vmess, trojan, shadowsocks, wireguard, hysteria2, tuic, socks5, http]
+        secret_ref:
+          type: string
+        status:
+          type: string
+          enum: [active, revoked]
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    AccessKeyListResponse:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/AccessKey'
+        limit:
+          type: integer
+        offset:
+          type: integer
+    CreateAccessKeyRequest:
+      type: object
+      required: [tenant_id, user_id, key_type]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        key_type:
+          type: string
+        secret_ref:
+          type: string
+        expires_at:
+          type: string
+          format: date-time
+          nullable: true
+    TenantPolicy:
+      type: object
+      required: [tenant_id, updated_at]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        traffic_quota_bytes:
+          type: integer
+          format: int64
+          nullable: true
+        device_limit:
+          type: integer
+          nullable: true
+        default_key_ttl_seconds:
+          type: integer
+          nullable: true
+        updated_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    SetTenantPolicyRequest:
+      type: object
+      required: [tenant_id]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        traffic_quota_bytes:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+        device_limit:
+          type: integer
+          nullable: true
+          minimum: 1
+        default_key_ttl_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+    TenantPolicyListResponse:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/TenantPolicy'
+        limit:
+          type: integer
+        offset:
+          type: integer
+    UserPolicyOverride:
+      type: object
+      required: [tenant_id, user_id, updated_at]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        traffic_quota_bytes:
+          type: integer
+          format: int64
+          nullable: true
+        device_limit:
+          type: integer
+          nullable: true
+        key_ttl_seconds:
+          type: integer
+          nullable: true
+        updated_by:
+          type: string
+        updated_at:
+          type: string
+          format: date-time
+    SetUserPolicyOverrideRequest:
+      type: object
+      required: [tenant_id, user_id]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        traffic_quota_bytes:
+          type: integer
+          format: int64
+          nullable: true
+          minimum: 0
+        device_limit:
+          type: integer
+          nullable: true
+          minimum: 1
+        key_ttl_seconds:
+          type: integer
+          nullable: true
+          minimum: 1
+    UserPolicyOverrideListResponse:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/UserPolicyOverride'
+        limit:
+          type: integer
+        offset:
+          type: integer
+    EffectivePolicy:
+      type: object
+      required: [tenant_id, user_id, usage_bytes, quota_exceeded, source]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        traffic_quota_bytes:
+          type: integer
+          format: int64
+          nullable: true
+        device_limit:
+          type: integer
+          nullable: true
+        key_ttl_seconds:
+          type: integer
+          nullable: true
+        usage_bytes:
+          type: integer
+          format: int64
+        quota_exceeded:
+          type: boolean
+        source:
+          type: string
+          enum: [tenant_default, user_override]
+    RegisterDeviceRequest:
+      type: object
+      required: [tenant_id, user_id, device_fingerprint, platform]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        device_fingerprint:
+          type: string
+          minLength: 1
+        platform:
+          type: string
+          minLength: 1
+    Device:
+      type: object
+      required: [id, tenant_id, user_id, device_fingerprint, platform, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        device_fingerprint:
+          type: string
+        platform:
+          type: string
+        status:
+          type: string
+          enum: [active, blocked]
+        created_at:
+          type: string
+          format: date-time
+    Node:
+      type: object
+      required: [id, tenant_id, region, hostname, node_key_id, node_public_key, contract_version, agent_version, capabilities, identity_fingerprint, status, created_at]
+      properties:
+        id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        region:
+          type: string
+        hostname:
+          type: string
+        node_key_id:
+          type: string
+        node_public_key:
+          type: string
+        contract_version:
+          type: string
+        agent_version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        identity_fingerprint:
+          type: string
+        status:
+          type: string
+          enum: [pending, active, stale, offline, revoked]
+        last_seen_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_heartbeat_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    NodeListResponse:
+      type: object
+      required: [items, limit, offset]
+      properties:
+        items:
+          type: array
+          items:
+            $ref: '#/components/schemas/Node'
+        limit:
+          type: integer
+        offset:
+          type: integer
+    RegisterNodeRequest:
+      type: object
+      required: [tenant_id, region, hostname, node_key_id, node_public_key, contract_version, agent_version, capabilities, signed_at, signature]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        region:
+          type: string
+        hostname:
+          type: string
+        node_key_id:
+          type: string
+        node_public_key:
+          type: string
+        contract_version:
+          type: string
+        agent_version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+        signed_at:
+          type: integer
+          format: int64
+        signature:
+          type: string
+    NodeHeartbeatRequest:
+      type: object
+      required: [tenant_id, node_id, node_key_id, contract_version, agent_version, signed_at, signature]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
+        node_key_id:
+          type: string
+        contract_version:
+          type: string
+        agent_version:
+          type: string
+        signed_at:
+          type: integer
+          format: int64
+        signature:
+          type: string
+    NodeProvisioningContract:
+      type: object
+      required: [tenant_id, node_id, node_key_id, contract_version, heartbeat_interval_seconds, stale_after_seconds, offline_after_seconds, required_capabilities]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
+        node_key_id:
+          type: string
+        contract_version:
+          type: string
+        heartbeat_interval_seconds:
+          type: integer
+        stale_after_seconds:
+          type: integer
+        offline_after_seconds:
+          type: integer
+        required_capabilities:
+          type: array
+          items:
+            type: string
+    NodeRegistrationResult:
+      type: object
+      required: [node, provisioning]
+      properties:
+        node:
+          $ref: '#/components/schemas/Node'
+        provisioning:
+          $ref: '#/components/schemas/NodeProvisioningContract'

@@ -1,0 +1,102 @@
+name: ci
+
+on:
+  pull_request:
+  push:
+    branches: ["main"]
+
+env:
+  TEST_POSTGRES_PORT: "35432"
+
+jobs:
+  go:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Go workspace test
+        run: |
+          go work sync
+          modules=(
+            apps/api-gateway
+            apps/installer-cli
+            apps/node-agent
+            services/core-platform
+            services/usage-worker
+            services/webhook-worker
+            services/auth-service
+            services/tenant-service
+            services/user-service
+            services/key-service
+            services/subscription-service
+            services/provisioning-service
+            services/node-registry-service
+            services/stats-service
+            services/audit-service
+            services/notification-service
+          )
+          for m in "${modules[@]}"; do
+            (cd "$m" && go test ./...)
+          done
+
+  integration-backend:
+    runs-on: ubuntu-latest
+    services:
+      postgres:
+        image: postgres:16-alpine
+        env:
+          POSTGRES_DB: openernetdoor_test
+          POSTGRES_USER: openernetdoor
+          POSTGRES_PASSWORD: openernetdoor
+        ports:
+          - ${{ env.TEST_POSTGRES_PORT }}:5432
+        options: >-
+          --health-cmd "pg_isready -U openernetdoor -d openernetdoor_test"
+          --health-interval 5s
+          --health-timeout 3s
+          --health-retries 20
+    env:
+      TEST_POSTGRES_PORT: ${{ env.TEST_POSTGRES_PORT }}
+      TEST_DATABASE_URL: postgresql://openernetdoor:openernetdoor@127.0.0.1:${{ env.TEST_POSTGRES_PORT }}/openernetdoor_test?sslmode=disable
+      TEST_MIGRATIONS_DIR: ${{ github.workspace }}/ops/migrations
+    steps:
+      - uses: actions/checkout@v4
+      - uses: actions/setup-go@v5
+        with:
+          go-version: "1.24.x"
+      - name: Stage2+Stage3+Stage4 integration tests
+        run: |
+          go -C services/core-platform test -p 1 -tags=integration ./internal/store ./internal/service ./internal/http -count=1 -v
+          go -C apps/api-gateway test -p 1 -tags=integration ./internal/http -count=1 -v
+
+  web:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: pnpm/action-setup@v4
+        with:
+          version: 10.6.2
+      - uses: actions/setup-node@v4
+        with:
+          node-version: "22.12.0"
+          cache: "pnpm"
+      - run: pnpm --dir apps/admin-web install --frozen-lockfile=false
+      - run: pnpm --dir apps/admin-web build
+      - run: pnpm --dir apps/manager-desktop install --frozen-lockfile=false
+      - run: pnpm --dir apps/manager-desktop build
+      - run: pnpm --dir apps/desktop-client install --frozen-lockfile=false
+      - run: pnpm --dir apps/desktop-client build
+
+  mobile-partial:
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: subosito/flutter-action@v2
+        with:
+          flutter-version: "3.24.0"
+      - run: flutter pub get
+        working-directory: apps/mobile-client
+      - run: flutter analyze
+        working-directory: apps/mobile-client

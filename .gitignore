@@ -1,0 +1,32 @@
+# OS / IDE
+.DS_Store
+Thumbs.db
+.vscode/
+.idea/
+
+# Env
+.env
+.env.local
+infra/compose/prod/env/prod.env
+
+# Logs
+*.log
+*.out
+*.err
+
+# Node
+node_modules/
+.pnpm-store/
+apps/*/.next/
+apps/*/dist/
+
+# Flutter / Dart
+.dart_tool/
+build/
+
+# Rust / Tauri
+**/target/
+
+# Go
+bin/
+coverage.out
