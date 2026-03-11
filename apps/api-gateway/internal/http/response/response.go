@@ -32,5 +32,3 @@ func Error(w http.ResponseWriter, r *http.Request, status int, code, message str
 		},
 	})
 }
-
-

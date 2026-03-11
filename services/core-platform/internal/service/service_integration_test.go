@@ -172,6 +172,92 @@ func TestCoreService_AccessKeyLifecycle(t *testing.T) {
 	}
 }
 
+func TestCoreService_UserLifecycleAndBlockedKeyGuard(t *testing.T) {
+	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
+	db := testutil.OpenDB(t, databaseURL)
+	testutil.ApplyMigrations(t, db, migrationsDir)
+	testutil.ResetData(t, db)
+
+	s, err := store.NewSQLStore(databaseURL)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	defer s.Close()
+
+	svc := New(s)
+	platform := testutil.PlatformAdminActor()
+	tenant, err := svc.CreateTenant(t.Context(), platform, model.CreateTenantRequest{Name: testutil.UniqueName("tenant-users")})
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user, err := svc.CreateUser(t.Context(), platform, model.CreateUserRequest{TenantID: tenant.ID, Email: "svc-users@example.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	blocked, err := svc.BlockUser(t.Context(), platform, model.UserLifecycleRequest{TenantID: tenant.ID, UserID: user.ID})
+	if err != nil {
+		t.Fatalf("block user: %v", err)
+	}
+	if blocked.Status != "blocked" {
+		t.Fatalf("expected blocked status, got %s", blocked.Status)
+	}
+
+	_, err = svc.CreateAccessKey(t.Context(), platform, model.CreateAccessKeyRequest{TenantID: tenant.ID, UserID: user.ID, KeyType: "vless"})
+	if err == nil {
+		t.Fatal("expected user_blocked error")
+	}
+	var appErr *AppError
+	if !errors.As(err, &appErr) {
+		t.Fatalf("expected AppError, got %T (%v)", err, err)
+	}
+	if appErr.Code != "user_blocked" {
+		t.Fatalf("expected user_blocked code, got %s", appErr.Code)
+	}
+
+	unblocked, err := svc.UnblockUser(t.Context(), platform, model.UserLifecycleRequest{TenantID: tenant.ID, UserID: user.ID})
+	if err != nil {
+		t.Fatalf("unblock user: %v", err)
+	}
+	if unblocked.Status != "active" {
+		t.Fatalf("expected active status, got %s", unblocked.Status)
+	}
+
+	createdKey, err := svc.CreateAccessKey(t.Context(), platform, model.CreateAccessKeyRequest{TenantID: tenant.ID, UserID: user.ID, KeyType: "vless"})
+	if err != nil {
+		t.Fatalf("create key after unblock: %v", err)
+	}
+	if _, err := svc.RevokeAccessKey(t.Context(), platform, model.RevokeAccessKeyRequest{ID: createdKey.ID, TenantID: tenant.ID}); err != nil {
+		t.Fatalf("revoke key after unblock: %v", err)
+	}
+
+	if err := svc.DeleteUser(t.Context(), platform, model.UserLifecycleRequest{TenantID: tenant.ID, UserID: user.ID}); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+
+	users, err := svc.ListUsers(t.Context(), platform, model.ListUsersQuery{TenantID: tenant.ID, ListQuery: model.ListQuery{Limit: 10}})
+	if err != nil {
+		t.Fatalf("list users: %v", err)
+	}
+	if len(users) != 0 {
+		t.Fatalf("expected no users after delete, got %d", len(users))
+	}
+
+	logs, err := svc.ListAuditLogs(t.Context(), platform, model.ListAuditLogsQuery{TenantID: tenant.ID, ListQuery: model.ListQuery{Limit: 100}})
+	if err != nil {
+		t.Fatalf("list audit logs: %v", err)
+	}
+	actions := map[string]bool{}
+	for _, record := range logs {
+		actions[record.Action] = true
+	}
+	for _, action := range []string{"user.created", "user.blocked", "user.unblocked", "user.deleted", "access_key.created", "access_key.revoked"} {
+		if !actions[action] {
+			t.Fatalf("expected audit action %s not found", action)
+		}
+	}
+}
+
 func TestCoreService_PolicyEnforcement(t *testing.T) {
 	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
 	db := testutil.OpenDB(t, databaseURL)
@@ -281,6 +367,7 @@ func TestCoreService_NodeRegistrationAndHeartbeat(t *testing.T) {
 		ContractVersion: integrationNodeContractVersion,
 		AgentVersion:    "1.0.0",
 		Capabilities:    []string{"heartbeat.v1", "provisioning.v1"},
+		Nonce:           "nonce-register-1",
 		SignedAt:        time.Now().UTC().Unix(),
 	}
 	register.Signature = signRegister(register)
@@ -299,6 +386,8 @@ func TestCoreService_NodeRegistrationAndHeartbeat(t *testing.T) {
 		NodeKeyID:       register.NodeKeyID,
 		ContractVersion: integrationNodeContractVersion,
 		AgentVersion:    "1.0.1",
+		TLSIdentity:     &model.NodeTLSIdentity{SerialNumber: registered.Provisioning.NodeCertificateSerial},
+		Nonce:           "nonce-heartbeat-1",
 		SignedAt:        time.Now().UTC().Unix(),
 	}
 	heartbeat.Signature = signHeartbeat(heartbeat, register.NodePublicKey)
@@ -341,6 +430,8 @@ func signRegister(in model.RegisterNodeRequest) string {
 		in.ContractVersion,
 		in.AgentVersion,
 		strings.Join(caps, ","),
+		identitySerialForTest(in.TLSIdentity),
+		in.Nonce,
 		strconv.FormatInt(in.SignedAt, 10),
 	}, "\n")
 	return sign(payload)
@@ -355,9 +446,18 @@ func signHeartbeat(in model.NodeHeartbeatRequest, nodePublicKey string) string {
 		nodePublicKey,
 		in.ContractVersion,
 		in.AgentVersion,
+		identitySerialForTest(in.TLSIdentity),
+		in.Nonce,
 		strconv.FormatInt(in.SignedAt, 10),
 	}, "\n")
 	return sign(payload)
+}
+
+func identitySerialForTest(identity *model.NodeTLSIdentity) string {
+	if identity == nil {
+		return ""
+	}
+	return strings.TrimSpace(identity.SerialNumber)
 }
 
 func sign(payload string) string {

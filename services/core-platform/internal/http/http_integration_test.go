@@ -99,6 +99,67 @@ func TestHTTPAccessKeysLifecycleWithPostgres(t *testing.T) {
 	}
 }
 
+func TestHTTPUsersAndKeysOwnerFlowWithPostgres(t *testing.T) {
+	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
+	db := testutil.OpenDB(t, databaseURL)
+	testutil.ApplyMigrations(t, db, migrationsDir)
+	testutil.ResetData(t, db)
+
+	s, err := store.NewSQLStore(databaseURL)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	defer s.Close()
+
+	h := NewHandler(s)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	actorHeaders := map[string]string{
+		"X-Actor-Sub":    "admin-platform-1",
+		"X-Actor-Scopes": "admin:read,admin:write,platform:admin",
+	}
+
+	tenant := createTenant(t, ts.URL, actorHeaders, testutil.UniqueName("tenant-http-owner"))
+	user := createUser(t, ts.URL, actorHeaders, tenant.ID, "owner-flow-user@example.com")
+
+	users := listUsers(t, ts.URL, actorHeaders, tenant.ID)
+	if len(users) != 1 || users[0].ID != user.ID {
+		t.Fatalf("expected created user in list, got %+v", users)
+	}
+
+	blocked := setUserStatus(t, ts.URL, actorHeaders, "/internal/v1/users/block", model.UserLifecycleRequest{TenantID: tenant.ID, UserID: user.ID})
+	if blocked.Status != "blocked" {
+		t.Fatalf("expected blocked status, got %s", blocked.Status)
+	}
+
+	status, body := createAccessKeyExpect(t, ts.URL, actorHeaders, model.CreateAccessKeyRequest{TenantID: tenant.ID, UserID: user.ID, KeyType: "vless"})
+	if status != http.StatusConflict {
+		t.Fatalf("expected 409 when creating key for blocked user, got %d body=%s", status, body)
+	}
+
+	unblocked := setUserStatus(t, ts.URL, actorHeaders, "/internal/v1/users/unblock", model.UserLifecycleRequest{TenantID: tenant.ID, UserID: user.ID})
+	if unblocked.Status != "active" {
+		t.Fatalf("expected active status after unblock, got %s", unblocked.Status)
+	}
+
+	created := createAccessKey(t, ts.URL, actorHeaders, model.CreateAccessKeyRequest{TenantID: tenant.ID, UserID: user.ID, KeyType: "vless"})
+	if created.Status != "active" {
+		t.Fatalf("expected active key status, got %s", created.Status)
+	}
+
+	revoked := revokeAccessKey(t, ts.URL, actorHeaders, created.ID, tenant.ID)
+	if revoked.Status != "revoked" {
+		t.Fatalf("expected revoked key status, got %s", revoked.Status)
+	}
+
+	deleteUser(t, ts.URL, actorHeaders, tenant.ID, user.ID)
+	users = listUsers(t, ts.URL, actorHeaders, tenant.ID)
+	if len(users) != 0 {
+		t.Fatalf("expected no users after delete, got %+v", users)
+	}
+}
+
 func TestHTTPPolicyQuotaAndDeviceEnforcementWithPostgres(t *testing.T) {
 	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
 	db := testutil.OpenDB(t, databaseURL)
@@ -169,6 +230,58 @@ func TestHTTPPolicyQuotaAndDeviceEnforcementWithPostgres(t *testing.T) {
 	}
 }
 
+func TestHTTPNodeOwnerCreateLifecycleWithPostgres(t *testing.T) {
+	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
+	db := testutil.OpenDB(t, databaseURL)
+	testutil.ApplyMigrations(t, db, migrationsDir)
+	testutil.ResetData(t, db)
+
+	s, err := store.NewSQLStore(databaseURL)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	defer s.Close()
+
+	h := NewHandler(s)
+	ts := httptest.NewServer(h)
+	defer ts.Close()
+
+	actorHeaders := map[string]string{
+		"X-Actor-Sub":    "admin-platform-1",
+		"X-Actor-Scopes": "admin:read,admin:write,platform:admin",
+	}
+
+	tenant := createTenant(t, ts.URL, actorHeaders, testutil.UniqueName("tenant-http-owner-node"))
+	created := createNodeOwner(t, ts.URL, actorHeaders, model.CreateNodeRequest{
+		TenantID:     tenant.ID,
+		Region:       "de-central",
+		Hostname:     "de-owner-1.example.com",
+		Capabilities: []string{"heartbeat.v1", "provisioning.v1"},
+	})
+	if created.Status != "pending" {
+		t.Fatalf("expected pending status for new owner node, got %s", created.Status)
+	}
+
+	nodes := listNodes(t, ts.URL, actorHeaders, tenant.ID)
+	if len(nodes) != 1 {
+		t.Fatalf("expected 1 node, got %d", len(nodes))
+	}
+
+	detail := getNodeDetail(t, ts.URL, actorHeaders, tenant.ID, created.ID)
+	if detail.ID != created.ID {
+		t.Fatalf("expected detail id %s, got %s", created.ID, detail.ID)
+	}
+
+	revoked := nodeLifecycleRequest(t, ts.URL, actorHeaders, "/internal/v1/nodes/revoke", model.NodeLifecycleRequest{TenantID: tenant.ID, NodeID: created.ID})
+	if revoked.Status != "revoked" {
+		t.Fatalf("expected revoked status, got %s", revoked.Status)
+	}
+
+	reactivated := nodeLifecycleRequest(t, ts.URL, actorHeaders, "/internal/v1/nodes/reactivate", model.NodeLifecycleRequest{TenantID: tenant.ID, NodeID: created.ID})
+	if reactivated.Status != "pending" {
+		t.Fatalf("expected pending status after reactivate, got %s", reactivated.Status)
+	}
+}
 func TestHTTPNodeRegistrationHeartbeatWithPostgres(t *testing.T) {
 	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
 	db := testutil.OpenDB(t, databaseURL)
@@ -202,6 +315,7 @@ func TestHTTPNodeRegistrationHeartbeatWithPostgres(t *testing.T) {
 		ContractVersion: testNodeContractVersion,
 		AgentVersion:    "1.2.3",
 		Capabilities:    caps,
+		Nonce:           "nonce-http-register-1",
 		SignedAt:        signedAt,
 	}
 	registerReq.Signature = signRegisterNode(registerReq)
@@ -220,6 +334,8 @@ func TestHTTPNodeRegistrationHeartbeatWithPostgres(t *testing.T) {
 		NodeKeyID:       registration.Node.NodeKeyID,
 		ContractVersion: testNodeContractVersion,
 		AgentVersion:    "1.2.3",
+		TLSIdentity:     &model.NodeTLSIdentity{SerialNumber: registration.Provisioning.NodeCertificateSerial},
+		Nonce:           "nonce-http-heartbeat-1",
 		SignedAt:        time.Now().UTC().Unix(),
 	}
 	heartbeatReq.Signature = signHeartbeatNode(heartbeatReq, registerReq.NodePublicKey)
@@ -285,6 +401,74 @@ func createUser(t *testing.T, baseURL string, headers map[string]string, tenantI
 	return out
 }
 
+func listUsers(t *testing.T, baseURL string, headers map[string]string, tenantID string) []model.User {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, baseURL+"/internal/v1/users?tenant_id="+tenantID+"&limit=50&offset=0", nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("list users request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		t.Fatalf("expected 200 list users, got %d body=%s", resp.StatusCode, buf.String())
+	}
+	var out struct {
+		Items []model.User `json:"items"`
+	}
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode users list: %v", err)
+	}
+	return out.Items
+}
+
+func setUserStatus(t *testing.T, baseURL string, headers map[string]string, endpoint string, in model.UserLifecycleRequest) model.User {
+	t.Helper()
+	body, _ := json.Marshal(in)
+	req, _ := http.NewRequest(http.MethodPost, baseURL+endpoint, bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("user status request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		t.Fatalf("expected 200 user status mutation, got %d body=%s", resp.StatusCode, buf.String())
+	}
+	var out model.User
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode user status response: %v", err)
+	}
+	return out
+}
+
+func deleteUser(t *testing.T, baseURL string, headers map[string]string, tenantID string, userID string) {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, baseURL+"/internal/v1/users?id="+userID+"&tenant_id="+tenantID, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("delete user request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		t.Fatalf("expected 200 delete user, got %d body=%s", resp.StatusCode, buf.String())
+	}
+}
+
 func createAccessKey(t *testing.T, baseURL string, headers map[string]string, in model.CreateAccessKeyRequest) model.AccessKey {
 	t.Helper()
 	body, _ := json.Marshal(in)
@@ -324,6 +508,29 @@ func createAccessKeyExpect(t *testing.T, baseURL string, headers map[string]stri
 	buf := new(bytes.Buffer)
 	_, _ = buf.ReadFrom(resp.Body)
 	return resp.StatusCode, buf.String()
+}
+
+func revokeAccessKey(t *testing.T, baseURL string, headers map[string]string, keyID string, tenantID string) model.AccessKey {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodDelete, baseURL+"/internal/v1/access-keys?id="+keyID+"&tenant_id="+tenantID, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("revoke access key request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		t.Fatalf("expected 200 revoke access key, got %d body=%s", resp.StatusCode, buf.String())
+	}
+	var out model.AccessKey
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode revoked key: %v", err)
+	}
+	return out
 }
 
 func setTenantPolicy(t *testing.T, baseURL string, headers map[string]string, in model.SetTenantPolicyRequest) {
@@ -410,6 +617,53 @@ func registerDeviceExpect(t *testing.T, baseURL string, headers map[string]strin
 	return resp.StatusCode, buf.String()
 }
 
+func createNodeOwner(t *testing.T, baseURL string, headers map[string]string, in model.CreateNodeRequest) model.Node {
+	t.Helper()
+	body, _ := json.Marshal(in)
+	req, _ := http.NewRequest(http.MethodPost, baseURL+"/internal/v1/nodes", bytes.NewReader(body))
+	req.Header.Set("Content-Type", "application/json")
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("create node request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusCreated {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		t.Fatalf("expected 201 create node, got %d body=%s", resp.StatusCode, buf.String())
+	}
+	var out model.Node
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode create node response: %v", err)
+	}
+	return out
+}
+
+func getNodeDetail(t *testing.T, baseURL string, headers map[string]string, tenantID string, nodeID string) model.Node {
+	t.Helper()
+	req, _ := http.NewRequest(http.MethodGet, baseURL+"/internal/v1/nodes/detail?tenant_id="+tenantID+"&node_id="+nodeID, nil)
+	for k, v := range headers {
+		req.Header.Set(k, v)
+	}
+	resp, err := http.DefaultClient.Do(req)
+	if err != nil {
+		t.Fatalf("node detail request: %v", err)
+	}
+	defer resp.Body.Close()
+	if resp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(resp.Body)
+		t.Fatalf("expected 200 node detail, got %d body=%s", resp.StatusCode, buf.String())
+	}
+	var out model.Node
+	if err := json.NewDecoder(resp.Body).Decode(&out); err != nil {
+		t.Fatalf("decode node detail response: %v", err)
+	}
+	return out
+}
 func registerNode(t *testing.T, baseURL string, headers map[string]string, in model.RegisterNodeRequest) model.NodeRegistrationResult {
 	t.Helper()
 	body, _ := json.Marshal(in)
@@ -517,6 +771,8 @@ func signRegisterNode(in model.RegisterNodeRequest) string {
 		in.ContractVersion,
 		in.AgentVersion,
 		strings.Join(caps, ","),
+		identitySerialForHTTPTest(in.TLSIdentity),
+		in.Nonce,
 		strconv.FormatInt(in.SignedAt, 10),
 	}, "\n")
 	return hmacHex(payload)
@@ -531,9 +787,18 @@ func signHeartbeatNode(in model.NodeHeartbeatRequest, nodePublicKey string) stri
 		nodePublicKey,
 		in.ContractVersion,
 		in.AgentVersion,
+		identitySerialForHTTPTest(in.TLSIdentity),
+		in.Nonce,
 		strconv.FormatInt(in.SignedAt, 10),
 	}, "\n")
 	return hmacHex(payload)
+}
+
+func identitySerialForHTTPTest(identity *model.NodeTLSIdentity) string {
+	if identity == nil {
+		return ""
+	}
+	return strings.TrimSpace(identity.SerialNumber)
 }
 
 func hmacHex(payload string) string {

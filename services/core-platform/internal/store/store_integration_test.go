@@ -3,6 +3,7 @@
 package store
 
 import (
+	"database/sql"
 	"errors"
 	"testing"
 	"time"
@@ -21,13 +22,13 @@ func TestMigrationsApplied(t *testing.T) {
 		SELECT count(*)
 		FROM information_schema.tables
 		WHERE table_schema = 'public'
-		  AND table_name IN ('tenants','users','admins','nodes','devices','access_keys','traffic_usage_hourly','audit_logs','tenant_policies','user_policy_overrides','node_heartbeats')
+		  AND table_name IN ('tenants','users','admins','nodes','devices','access_keys','traffic_usage_hourly','audit_logs','tenant_policies','user_policy_overrides','node_heartbeats','node_request_nonces','node_certificates','pki_issuers')
 	`).Scan(&tablesCount)
 	if err != nil {
 		t.Fatalf("check tables: %v", err)
 	}
-	if tablesCount != 11 {
-		t.Fatalf("expected 11 tables, got %d", tablesCount)
+	if tablesCount != 14 {
+		t.Fatalf("expected 14 tables, got %d", tablesCount)
 	}
 
 	var indexCount int
@@ -35,13 +36,13 @@ func TestMigrationsApplied(t *testing.T) {
 		SELECT count(*)
 		FROM pg_indexes
 		WHERE schemaname = 'public'
-		  AND indexname IN ('uq_tenants_name','uq_users_tenant_email','idx_user_policy_overrides_tenant_updated_at','uq_nodes_tenant_node_key','idx_node_heartbeats_node_received')
+		  AND indexname IN ('uq_tenants_name','uq_users_tenant_email','idx_user_policy_overrides_tenant_updated_at','uq_nodes_tenant_node_key','idx_node_heartbeats_node_received','uq_node_certificates_ca_serial','uq_pki_issuers_single_active')
 	`).Scan(&indexCount)
 	if err != nil {
 		t.Fatalf("check indexes: %v", err)
 	}
-	if indexCount != 5 {
-		t.Fatalf("expected 5 hardening indexes, got %d", indexCount)
+	if indexCount != 7 {
+		t.Fatalf("expected 7 hardening indexes, got %d", indexCount)
 	}
 }
 
@@ -102,6 +103,53 @@ func TestSQLStore_CreateUserForeignKeyViolation(t *testing.T) {
 	}
 	if dbErr.Kind != ErrorKindForeignKey {
 		t.Fatalf("expected foreign_key kind, got %s", dbErr.Kind)
+	}
+}
+
+func TestSQLStore_UserStatusAndDeleteLifecycle(t *testing.T) {
+	databaseURL, migrationsDir := testutil.RequireDBConfig(t)
+	db := testutil.OpenDB(t, databaseURL)
+	testutil.ApplyMigrations(t, db, migrationsDir)
+	testutil.ResetData(t, db)
+
+	s, err := NewSQLStore(databaseURL)
+	if err != nil {
+		t.Fatalf("new store: %v", err)
+	}
+	defer s.Close()
+
+	tenant, err := s.CreateTenant(t.Context(), model.CreateTenantRequest{Name: testutil.UniqueName("tenant")})
+	if err != nil {
+		t.Fatalf("create tenant: %v", err)
+	}
+	user, err := s.CreateUser(t.Context(), model.CreateUserRequest{TenantID: tenant.ID, Email: "store-user@example.com"})
+	if err != nil {
+		t.Fatalf("create user: %v", err)
+	}
+
+	fetched, err := s.GetUserByID(t.Context(), tenant.ID, user.ID)
+	if err != nil {
+		t.Fatalf("get user by id: %v", err)
+	}
+	if fetched.ID != user.ID {
+		t.Fatalf("expected user %s, got %s", user.ID, fetched.ID)
+	}
+
+	updated, err := s.UpdateUserStatus(t.Context(), tenant.ID, user.ID, "blocked")
+	if err != nil {
+		t.Fatalf("update user status: %v", err)
+	}
+	if updated.Status != "blocked" {
+		t.Fatalf("expected blocked status, got %s", updated.Status)
+	}
+
+	if err := s.DeleteUser(t.Context(), tenant.ID, user.ID); err != nil {
+		t.Fatalf("delete user: %v", err)
+	}
+
+	_, err = s.GetUserByID(t.Context(), tenant.ID, user.ID)
+	if !errors.Is(err, sql.ErrNoRows) {
+		t.Fatalf("expected sql.ErrNoRows after delete, got %v", err)
 	}
 }
 

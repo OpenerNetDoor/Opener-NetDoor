@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Opener NetDoor Public and Admin API
-  version: 1.3.0
+  version: 1.9.0
 servers:
   - url: https://api.example.com
 paths:
@@ -101,6 +101,76 @@ paths:
       responses:
         '201':
           description: Created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+    delete:
+      summary: Delete user
+      security:
+        - bearerAuth: [admin:write]
+      parameters:
+        - in: query
+          name: id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Deleted
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [deleted, id, tenant_id]
+                properties:
+                  deleted:
+                    type: boolean
+                  id:
+                    type: string
+                    format: uuid
+                  tenant_id:
+                    type: string
+                    format: uuid
+  /v1/admin/users/block:
+    post:
+      summary: Block user
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLifecycleRequest'
+      responses:
+        '200':
+          description: User updated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/User'
+  /v1/admin/users/unblock:
+    post:
+      summary: Unblock user
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/UserLifecycleRequest'
+      responses:
+        '200':
+          description: User updated
           content:
             application/json:
               schema:
@@ -324,6 +394,84 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NodeListResponse'
+    post:
+      summary: Create owner-managed node
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/CreateNodeRequest'
+      responses:
+        '201':
+          description: Node created
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+  /v1/admin/nodes/detail:
+    get:
+      summary: Get node details by tenant and id
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: node_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Node details
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+  /v1/admin/nodes/revoke:
+    post:
+      summary: Revoke node by tenant and node id
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeLifecycleRequest'
+      responses:
+        '200':
+          description: Node revoked
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
+  /v1/admin/nodes/reactivate:
+    post:
+      summary: Reactivate revoked node into pending state
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/NodeLifecycleRequest'
+      responses:
+        '200':
+          description: Node reactivated
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/Node'
   /v1/admin/nodes/register:
     post:
       summary: Register node with signed identity
@@ -496,6 +644,16 @@ components:
         note:
           type: string
           maxLength: 500
+    UserLifecycleRequest:
+      type: object
+      required: [tenant_id, user_id]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
     AccessKey:
       type: object
       required: [id, tenant_id, user_id, key_type, secret_ref, status, created_at]
@@ -789,6 +947,35 @@ components:
           type: integer
         offset:
           type: integer
+    CreateNodeRequest:
+      type: object
+      required: [tenant_id, region, hostname]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        region:
+          type: string
+        hostname:
+          type: string
+        agent_version:
+          type: string
+        contract_version:
+          type: string
+        capabilities:
+          type: array
+          items:
+            type: string
+    NodeLifecycleRequest:
+      type: object
+      required: [tenant_id, node_id]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid
     RegisterNodeRequest:
       type: object
       required: [tenant_id, region, hostname, node_key_id, node_public_key, contract_version, agent_version, capabilities, signed_at, signature]

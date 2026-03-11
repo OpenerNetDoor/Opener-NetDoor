@@ -70,6 +70,9 @@ func ResetData(t *testing.T, db *sql.DB) {
 	_, err := db.Exec(`
 		TRUNCATE TABLE
 		  node_heartbeats,
+		  node_request_nonces,
+		  node_certificates,
+		  pki_issuers,
 		  audit_logs,
 		  traffic_usage_hourly,
 		  user_policy_overrides,

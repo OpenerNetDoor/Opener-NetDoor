@@ -66,6 +66,29 @@ type ListNodesQuery struct {
 	Status   string `json:"status,omitempty"`
 }
 
+type ListNodeCertificatesQuery struct {
+	ListQuery
+	TenantID string `json:"tenant_id"`
+	NodeID   string `json:"node_id"`
+	Status   string `json:"status,omitempty"`
+}
+
+type ListPKIIssuersQuery struct {
+	ListQuery
+	Source string `json:"source,omitempty"`
+	Status string `json:"status,omitempty"`
+}
+
+type ListAuditLogsQuery struct {
+	ListQuery
+	TenantID   string     `json:"tenant_id,omitempty"`
+	Action     string     `json:"action,omitempty"`
+	ActorType  string     `json:"actor_type,omitempty"`
+	TargetType string     `json:"target_type,omitempty"`
+	Since      *time.Time `json:"since,omitempty"`
+	Until      *time.Time `json:"until,omitempty"`
+}
+
 type GetNodeProvisioningQuery struct {
 	TenantID  string `json:"tenant_id"`
 	NodeID    string `json:"node_id,omitempty"`
@@ -126,6 +149,75 @@ type Node struct {
 	CreatedAt           time.Time  `json:"created_at"`
 }
 
+type NodeTLSIdentity struct {
+	SerialNumber string `json:"serial_number"`
+	CertPEM      string `json:"cert_pem,omitempty"`
+}
+
+type NodeCertificate struct {
+	ID               string     `json:"id"`
+	TenantID         string     `json:"tenant_id"`
+	NodeID           string     `json:"node_id"`
+	SerialNumber     string     `json:"serial_number"`
+	CertPEM          string     `json:"cert_pem"`
+	CAID             string     `json:"ca_id"`
+	IssuerID         string     `json:"issuer_id,omitempty"`
+	Issuer           string     `json:"issuer"`
+	NotBefore        time.Time  `json:"not_before"`
+	NotAfter         time.Time  `json:"not_after"`
+	RevokedAt        *time.Time `json:"revoked_at,omitempty"`
+	RotateFromCertID *string    `json:"rotate_from_cert_id,omitempty"`
+	CreatedAt        time.Time  `json:"created_at"`
+}
+
+type PKIIssuer struct {
+	ID                 string         `json:"id"`
+	IssuerID           string         `json:"issuer_id"`
+	Source             string         `json:"source"`
+	CAID               string         `json:"ca_id"`
+	IssuerName         string         `json:"issuer_name"`
+	CACertPEM          string         `json:"ca_cert_pem"`
+	Status             string         `json:"status"`
+	ActivatedAt        *time.Time     `json:"activated_at,omitempty"`
+	RetiredAt          *time.Time     `json:"retired_at,omitempty"`
+	RotateFromIssuerID *string        `json:"rotate_from_issuer_id,omitempty"`
+	Metadata           map[string]any `json:"metadata,omitempty"`
+	CreatedAt          time.Time      `json:"created_at"`
+}
+
+type CARotationResult struct {
+	ActiveIssuer   PKIIssuer  `json:"active_issuer"`
+	PreviousIssuer *PKIIssuer `json:"previous_issuer,omitempty"`
+	RotatedAt      time.Time  `json:"rotated_at"`
+}
+
+type AuditLogRecord struct {
+	ID         string         `json:"id"`
+	TenantID   string         `json:"tenant_id,omitempty"`
+	ActorType  string         `json:"actor_type"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type,omitempty"`
+	TargetID   string         `json:"target_id,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	CreatedAt  time.Time      `json:"created_at"`
+}
+
+type OpsNodeStatusCount struct {
+	Status string `json:"status"`
+	Count  int    `json:"count"`
+}
+
+type OpsSnapshot struct {
+	TenantID             string               `json:"tenant_id,omitempty"`
+	GeneratedAt          time.Time            `json:"generated_at"`
+	NodeStatus           []OpsNodeStatusCount `json:"node_status"`
+	ActiveCertificates   int                  `json:"active_certificates"`
+	ExpiringCertificates int                  `json:"expiring_certificates_24h"`
+	TrafficBytes24h      int64                `json:"traffic_bytes_24h"`
+	ReplayRejected24h    int                  `json:"replay_rejected_24h"`
+	InvalidSignature24h  int                  `json:"invalid_signature_24h"`
+}
+
 type NodeRegistrationResult struct {
 	Node         Node                     `json:"node"`
 	Provisioning NodeProvisioningContract `json:"provisioning"`
@@ -140,6 +232,10 @@ type NodeProvisioningContract struct {
 	StaleAfterSeconds        int      `json:"stale_after_seconds"`
 	OfflineAfterSeconds      int      `json:"offline_after_seconds"`
 	RequiredCapabilities     []string `json:"required_capabilities"`
+	NodeCertificateSerial    string   `json:"node_certificate_serial,omitempty"`
+	NodeCertificatePEM       string   `json:"node_certificate_pem,omitempty"`
+	NodePrivateKeyPEM        string   `json:"node_private_key_pem,omitempty"`
+	NodeCertificateNotAfter  string   `json:"node_certificate_not_after,omitempty"`
 }
 
 type TenantPolicy struct {
@@ -182,6 +278,11 @@ type CreateUserRequest struct {
 	Note     string `json:"note,omitempty"`
 }
 
+type UserLifecycleRequest struct {
+	TenantID string `json:"tenant_id"`
+	UserID   string `json:"user_id"`
+}
+
 type CreateAccessKeyRequest struct {
 	TenantID  string     `json:"tenant_id"`
 	UserID    string     `json:"user_id"`
@@ -218,24 +319,122 @@ type RegisterDeviceRequest struct {
 }
 
 type RegisterNodeRequest struct {
-	TenantID        string   `json:"tenant_id"`
-	Region          string   `json:"region"`
-	Hostname        string   `json:"hostname"`
-	NodeKeyID       string   `json:"node_key_id"`
-	NodePublicKey   string   `json:"node_public_key"`
-	ContractVersion string   `json:"contract_version"`
-	AgentVersion    string   `json:"agent_version"`
-	Capabilities    []string `json:"capabilities"`
-	SignedAt        int64    `json:"signed_at"`
-	Signature       string   `json:"signature"`
+	TenantID        string           `json:"tenant_id"`
+	Region          string           `json:"region"`
+	Hostname        string           `json:"hostname"`
+	NodeKeyID       string           `json:"node_key_id"`
+	NodePublicKey   string           `json:"node_public_key"`
+	ContractVersion string           `json:"contract_version"`
+	AgentVersion    string           `json:"agent_version"`
+	Capabilities    []string         `json:"capabilities"`
+	TLSIdentity     *NodeTLSIdentity `json:"tls_identity,omitempty"`
+	Nonce           string           `json:"nonce"`
+	SignedAt        int64            `json:"signed_at"`
+	Signature       string           `json:"signature"`
 }
 
 type NodeHeartbeatRequest struct {
-	TenantID        string `json:"tenant_id"`
-	NodeID          string `json:"node_id"`
-	NodeKeyID       string `json:"node_key_id"`
-	ContractVersion string `json:"contract_version"`
-	AgentVersion    string `json:"agent_version"`
-	SignedAt        int64  `json:"signed_at"`
-	Signature       string `json:"signature"`
+	TenantID        string           `json:"tenant_id"`
+	NodeID          string           `json:"node_id"`
+	NodeKeyID       string           `json:"node_key_id"`
+	ContractVersion string           `json:"contract_version"`
+	AgentVersion    string           `json:"agent_version"`
+	TLSIdentity     *NodeTLSIdentity `json:"tls_identity,omitempty"`
+	Nonce           string           `json:"nonce"`
+	SignedAt        int64            `json:"signed_at"`
+	Signature       string           `json:"signature"`
+}
+
+type NodeLifecycleRequest struct {
+	TenantID string `json:"tenant_id"`
+	NodeID   string `json:"node_id"`
+}
+
+type CreateNodeRequest struct {
+	TenantID        string   `json:"tenant_id"`
+	Region          string   `json:"region"`
+	Hostname        string   `json:"hostname"`
+	AgentVersion    string   `json:"agent_version,omitempty"`
+	ContractVersion string   `json:"contract_version,omitempty"`
+	Capabilities    []string `json:"capabilities,omitempty"`
+}
+
+type IssueNodeCertificateRequest struct {
+	TenantID         string    `json:"tenant_id"`
+	NodeID           string    `json:"node_id"`
+	SerialNumber     string    `json:"serial_number"`
+	CertPEM          string    `json:"cert_pem"`
+	CAID             string    `json:"ca_id"`
+	IssuerID         string    `json:"issuer_id,omitempty"`
+	Issuer           string    `json:"issuer"`
+	NotBefore        time.Time `json:"not_before"`
+	NotAfter         time.Time `json:"not_after"`
+	RotateFromCertID *string   `json:"rotate_from_cert_id,omitempty"`
+}
+
+type RotateNodeCertificateRequest struct {
+	TenantID string `json:"tenant_id"`
+	NodeID   string `json:"node_id"`
+}
+
+type RevokeNodeCertificateRequest struct {
+	TenantID       string `json:"tenant_id"`
+	NodeID         string `json:"node_id"`
+	CertificateID  string `json:"certificate_id,omitempty"`
+	SerialNumber   string `json:"serial_number,omitempty"`
+	RevocationNote string `json:"revocation_note,omitempty"`
+}
+
+type RenewNodeCertificateRequest struct {
+	TenantID   string `json:"tenant_id"`
+	NodeID     string `json:"node_id"`
+	Force      bool   `json:"force,omitempty"`
+	TTLSeconds *int   `json:"ttl_seconds,omitempty"`
+}
+
+type RenewNodeCertificateResult struct {
+	TenantID              string          `json:"tenant_id"`
+	NodeID                string          `json:"node_id"`
+	PreviousCertificateID string          `json:"previous_certificate_id,omitempty"`
+	PreviousSerialNumber  string          `json:"previous_serial_number,omitempty"`
+	Certificate           NodeCertificate `json:"certificate"`
+	Renewed               bool            `json:"renewed"`
+}
+
+type CreatePKIIssuerRequest struct {
+	IssuerID   string         `json:"issuer_id"`
+	Source     string         `json:"source,omitempty"`
+	CAID       string         `json:"ca_id,omitempty"`
+	IssuerName string         `json:"issuer_name,omitempty"`
+	CACertPEM  string         `json:"ca_cert_pem,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	Activate   bool           `json:"activate,omitempty"`
+}
+
+type ActivatePKIIssuerRequest struct {
+	IssuerID string `json:"issuer_id"`
+}
+
+type RetirePKIIssuerRequest struct {
+	IssuerID string `json:"issuer_id"`
+}
+
+type ConsumeNodeNonceRequest struct {
+	TenantID    string    `json:"tenant_id"`
+	NodeKeyID   string    `json:"node_key_id"`
+	RequestType string    `json:"request_type"`
+	Nonce       string    `json:"nonce"`
+	SignedAt    time.Time `json:"signed_at"`
+	ExpiresAt   time.Time `json:"expires_at"`
+}
+
+type AuditLogEvent struct {
+	TenantID   string         `json:"tenant_id"`
+	ActorType  string         `json:"actor_type"`
+	ActorSub   string         `json:"actor_sub,omitempty"`
+	Action     string         `json:"action"`
+	TargetType string         `json:"target_type,omitempty"`
+	TargetID   string         `json:"target_id,omitempty"`
+	Metadata   map[string]any `json:"metadata,omitempty"`
+	OccurredAt time.Time      `json:"occurred_at,omitempty"`
 }

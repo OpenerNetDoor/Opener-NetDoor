@@ -46,6 +46,9 @@ type Store interface {
 
 	ListUsers(ctx context.Context, q model.ListUsersQuery) ([]model.User, error)
 	CreateUser(ctx context.Context, in model.CreateUserRequest) (model.User, error)
+	GetUserByID(ctx context.Context, tenantID string, userID string) (model.User, error)
+	UpdateUserStatus(ctx context.Context, tenantID string, userID string, status string) (model.User, error)
+	DeleteUser(ctx context.Context, tenantID string, userID string) error
 
 	ListAccessKeys(ctx context.Context, q model.ListAccessKeysQuery) ([]model.AccessKey, error)
 	CreateAccessKey(ctx context.Context, in model.CreateAccessKeyRequest) (model.AccessKey, error)
@@ -71,7 +74,17 @@ type Store interface {
 	GetNodeByKey(ctx context.Context, tenantID string, nodeKeyID string) (model.Node, error)
 	UpsertNodeRegistration(ctx context.Context, in model.RegisterNodeRequest, identityFingerprint string) (model.Node, error)
 	TouchNodeHeartbeat(ctx context.Context, in model.NodeHeartbeatRequest) (model.Node, error)
+	RevokeNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error)
+	ReactivateNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error)
+	ConsumeNodeNonce(ctx context.Context, in model.ConsumeNodeNonceRequest) error
 	InsertNodeHeartbeatEvent(ctx context.Context, nodeID string, tenantID string, status string, metadata map[string]any) error
+	InsertAuditLog(ctx context.Context, in model.AuditLogEvent) error
+	ListAuditLogs(ctx context.Context, q model.ListAuditLogsQuery) ([]model.AuditLogRecord, error)
+	ListNodeStatusCounts(ctx context.Context, tenantID string) ([]model.OpsNodeStatusCount, error)
+	CountActiveNodeCertificates(ctx context.Context, tenantID string) (int, error)
+	CountExpiringNodeCertificates(ctx context.Context, tenantID string, before time.Time) (int, error)
+	GetTrafficUsageTotalBetween(ctx context.Context, tenantID string, since time.Time, until time.Time) (int64, error)
+	CountAuditActionsSince(ctx context.Context, tenantID string, action string, since time.Time) (int, error)
 
 	Ping(ctx context.Context) error
 	Close() error
@@ -208,6 +221,70 @@ func (s *SQLStore) CreateUser(ctx context.Context, in model.CreateUserRequest) (
 		return model.User{}, mapDBError(err)
 	}
 	return u, nil
+}
+
+func (s *SQLStore) GetUserByID(ctx context.Context, tenantID string, userID string) (model.User, error) {
+	var u model.User
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT id::text, tenant_id::text, COALESCE(email,''), status, COALESCE(note,''), created_at
+		 FROM users
+		 WHERE tenant_id = $1
+		   AND id = $2`,
+		tenantID,
+		userID,
+	).Scan(&u.ID, &u.TenantID, &u.Email, &u.Status, &u.Note, &u.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.User{}, sql.ErrNoRows
+		}
+		return model.User{}, fmt.Errorf("get user by id: %w", err)
+	}
+	return u, nil
+}
+
+func (s *SQLStore) UpdateUserStatus(ctx context.Context, tenantID string, userID string, status string) (model.User, error) {
+	var u model.User
+	err := s.db.QueryRowContext(
+		ctx,
+		`UPDATE users
+		 SET status = $3
+		 WHERE tenant_id = $1
+		   AND id = $2
+		 RETURNING id::text, tenant_id::text, COALESCE(email,''), status, COALESCE(note,''), created_at`,
+		tenantID,
+		userID,
+		status,
+	).Scan(&u.ID, &u.TenantID, &u.Email, &u.Status, &u.Note, &u.CreatedAt)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.User{}, sql.ErrNoRows
+		}
+		return model.User{}, mapDBError(err)
+	}
+	return u, nil
+}
+
+func (s *SQLStore) DeleteUser(ctx context.Context, tenantID string, userID string) error {
+	result, err := s.db.ExecContext(
+		ctx,
+		`DELETE FROM users
+		 WHERE tenant_id = $1
+		   AND id = $2`,
+		tenantID,
+		userID,
+	)
+	if err != nil {
+		return mapDBError(err)
+	}
+	rows, err := result.RowsAffected()
+	if err != nil {
+		return fmt.Errorf("delete user rows affected: %w", err)
+	}
+	if rows == 0 {
+		return sql.ErrNoRows
+	}
+	return nil
 }
 
 func (s *SQLStore) ListAccessKeys(ctx context.Context, q model.ListAccessKeysQuery) ([]model.AccessKey, error) {
@@ -727,6 +804,73 @@ func (s *SQLStore) TouchNodeHeartbeat(ctx context.Context, in model.NodeHeartbea
 	return item, nil
 }
 
+func (s *SQLStore) RevokeNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error) {
+	row := s.db.QueryRowContext(
+		ctx,
+		`UPDATE nodes
+		 SET status = 'revoked',
+		     last_seen_at = NOW()
+		 WHERE tenant_id = $1
+		   AND id = $2
+		 RETURNING id::text, tenant_id::text, region, hostname, node_key_id, node_public_key, contract_version, agent_version,
+		           capabilities, identity_fingerprint, status, last_seen_at, last_heartbeat_at, created_at`,
+		tenantID,
+		nodeID,
+	)
+	item, err := scanNode(row.Scan)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.Node{}, sql.ErrNoRows
+		}
+		return model.Node{}, mapDBError(err)
+	}
+	return item, nil
+}
+
+func (s *SQLStore) ReactivateNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error) {
+	row := s.db.QueryRowContext(
+		ctx,
+		`UPDATE nodes
+		 SET status = 'pending',
+		     last_seen_at = NOW(),
+		     last_heartbeat_at = NULL
+		 WHERE tenant_id = $1
+		   AND id = $2
+		   AND status = 'revoked'
+		 RETURNING id::text, tenant_id::text, region, hostname, node_key_id, node_public_key, contract_version, agent_version,
+		           capabilities, identity_fingerprint, status, last_seen_at, last_heartbeat_at, created_at`,
+		tenantID,
+		nodeID,
+	)
+	item, err := scanNode(row.Scan)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.Node{}, sql.ErrNoRows
+		}
+		return model.Node{}, mapDBError(err)
+	}
+	return item, nil
+}
+
+func (s *SQLStore) ConsumeNodeNonce(ctx context.Context, in model.ConsumeNodeNonceRequest) error {
+	_, _ = s.db.ExecContext(ctx, `DELETE FROM node_request_nonces WHERE expires_at < NOW()`)
+	_, err := s.db.ExecContext(
+		ctx,
+		`INSERT INTO node_request_nonces (tenant_id, node_key_id, request_type, nonce, signed_at, expires_at)
+		 VALUES ($1, $2, $3, $4, $5, $6)`,
+		in.TenantID,
+		in.NodeKeyID,
+		in.RequestType,
+		in.Nonce,
+		in.SignedAt,
+		in.ExpiresAt,
+	)
+	if err != nil {
+		return mapDBError(err)
+	}
+	return nil
+}
+
 func (s *SQLStore) InsertNodeHeartbeatEvent(ctx context.Context, nodeID string, tenantID string, status string, metadata map[string]any) error {
 	if metadata == nil {
 		metadata = map[string]any{}
@@ -747,6 +891,206 @@ func (s *SQLStore) InsertNodeHeartbeatEvent(ctx context.Context, nodeID string, 
 		return mapDBError(err)
 	}
 	return nil
+}
+
+func (s *SQLStore) InsertAuditLog(ctx context.Context, in model.AuditLogEvent) error {
+	metadata := in.Metadata
+	if metadata == nil {
+		metadata = map[string]any{}
+	}
+	if strings.TrimSpace(in.ActorSub) != "" {
+		metadata["actor_sub"] = in.ActorSub
+	}
+	if in.OccurredAt.IsZero() {
+		in.OccurredAt = time.Now().UTC()
+	}
+	blob, err := json.Marshal(metadata)
+	if err != nil {
+		return fmt.Errorf("marshal audit metadata: %w", err)
+	}
+	_, err = s.db.ExecContext(
+		ctx,
+		`INSERT INTO audit_logs (tenant_id, actor_type, actor_id, action, target_type, target_id, metadata, created_at)
+		 VALUES (NULLIF($1,'')::uuid, $2, NULL, $3, NULLIF($4,''), NULLIF($5,'')::uuid, $6::jsonb, $7)`,
+		strings.TrimSpace(in.TenantID),
+		strings.TrimSpace(in.ActorType),
+		strings.TrimSpace(in.Action),
+		strings.TrimSpace(in.TargetType),
+		strings.TrimSpace(in.TargetID),
+		string(blob),
+		in.OccurredAt,
+	)
+	if err != nil {
+		return mapDBError(err)
+	}
+	return nil
+}
+
+func (s *SQLStore) ListAuditLogs(ctx context.Context, q model.ListAuditLogsQuery) ([]model.AuditLogRecord, error) {
+	limit, offset := normalizePaging(q.Limit, q.Offset)
+	var since any
+	if q.Since != nil {
+		since = q.Since.UTC()
+	}
+	var until any
+	if q.Until != nil {
+		until = q.Until.UTC()
+	}
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT id::text,
+		        COALESCE(tenant_id::text, ''),
+		        actor_type,
+		        action,
+		        COALESCE(target_type, ''),
+		        COALESCE(target_id::text, ''),
+		        COALESCE(metadata, '{}'::jsonb),
+		        created_at
+		 FROM audit_logs
+		 WHERE ($1 = '' OR tenant_id::text = $1)
+		   AND ($2 = '' OR action = $2)
+		   AND ($3 = '' OR actor_type = $3)
+		   AND ($4 = '' OR target_type = $4)
+		   AND ($5::timestamptz IS NULL OR created_at >= $5)
+		   AND ($6::timestamptz IS NULL OR created_at <= $6)
+		 ORDER BY created_at DESC
+		 LIMIT $7 OFFSET $8`,
+		strings.TrimSpace(q.TenantID),
+		strings.TrimSpace(q.Action),
+		strings.TrimSpace(q.ActorType),
+		strings.TrimSpace(q.TargetType),
+		since,
+		until,
+		limit,
+		offset,
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query audit logs: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]model.AuditLogRecord, 0)
+	for rows.Next() {
+		var item model.AuditLogRecord
+		var metadataRaw []byte
+		if err := rows.Scan(&item.ID, &item.TenantID, &item.ActorType, &item.Action, &item.TargetType, &item.TargetID, &metadataRaw, &item.CreatedAt); err != nil {
+			return nil, fmt.Errorf("scan audit log: %w", err)
+		}
+		if len(metadataRaw) > 0 {
+			if err := json.Unmarshal(metadataRaw, &item.Metadata); err != nil {
+				return nil, fmt.Errorf("decode audit metadata: %w", err)
+			}
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate audit logs: %w", err)
+	}
+	return out, nil
+}
+
+func (s *SQLStore) ListNodeStatusCounts(ctx context.Context, tenantID string) ([]model.OpsNodeStatusCount, error) {
+	rows, err := s.db.QueryContext(
+		ctx,
+		`SELECT status, COUNT(*)
+		 FROM nodes
+		 WHERE ($1 = '' OR tenant_id::text = $1)
+		 GROUP BY status
+		 ORDER BY status`,
+		strings.TrimSpace(tenantID),
+	)
+	if err != nil {
+		return nil, fmt.Errorf("query node status counts: %w", err)
+	}
+	defer rows.Close()
+
+	out := make([]model.OpsNodeStatusCount, 0)
+	for rows.Next() {
+		var item model.OpsNodeStatusCount
+		if err := rows.Scan(&item.Status, &item.Count); err != nil {
+			return nil, fmt.Errorf("scan node status count: %w", err)
+		}
+		out = append(out, item)
+	}
+	if err := rows.Err(); err != nil {
+		return nil, fmt.Errorf("iterate node status counts: %w", err)
+	}
+	return out, nil
+}
+
+func (s *SQLStore) CountActiveNodeCertificates(ctx context.Context, tenantID string) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM node_certificates
+		 WHERE revoked_at IS NULL
+		   AND ($1 = '' OR tenant_id::text = $1)`,
+		strings.TrimSpace(tenantID),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count active node certificates: %w", err)
+	}
+	return count, nil
+}
+
+func (s *SQLStore) CountExpiringNodeCertificates(ctx context.Context, tenantID string, before time.Time) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM node_certificates
+		 WHERE revoked_at IS NULL
+		   AND not_after <= $2
+		   AND ($1 = '' OR tenant_id::text = $1)`,
+		strings.TrimSpace(tenantID),
+		before.UTC(),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count expiring node certificates: %w", err)
+	}
+	return count, nil
+}
+
+func (s *SQLStore) GetTrafficUsageTotalBetween(ctx context.Context, tenantID string, since time.Time, until time.Time) (int64, error) {
+	var total sql.NullInt64
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COALESCE(SUM(bytes_in + bytes_out), 0)
+		 FROM traffic_usage_hourly
+		 WHERE ($1 = '' OR tenant_id::text = $1)
+		   AND ts_hour >= $2
+		   AND ts_hour <= $3`,
+		strings.TrimSpace(tenantID),
+		since.UTC(),
+		until.UTC(),
+	).Scan(&total)
+	if err != nil {
+		return 0, fmt.Errorf("get traffic usage between: %w", err)
+	}
+	if !total.Valid {
+		return 0, nil
+	}
+	return total.Int64, nil
+}
+
+func (s *SQLStore) CountAuditActionsSince(ctx context.Context, tenantID string, action string, since time.Time) (int, error) {
+	var count int
+	err := s.db.QueryRowContext(
+		ctx,
+		`SELECT COUNT(*)
+		 FROM audit_logs
+		 WHERE ($1 = '' OR tenant_id::text = $1)
+		   AND action = $2
+		   AND created_at >= $3`,
+		strings.TrimSpace(tenantID),
+		strings.TrimSpace(action),
+		since.UTC(),
+	).Scan(&count)
+	if err != nil {
+		return 0, fmt.Errorf("count audit actions since: %w", err)
+	}
+	return count, nil
 }
 
 func scanTenantPolicy(scan func(dest ...any) error) (model.TenantPolicy, error) {
@@ -877,6 +1221,16 @@ func validationConstraintMessage(constraint string) string {
 		return "ttl must be > 0"
 	case "chk_nodes_status_stage5":
 		return "invalid node status"
+	case "chk_node_request_nonces_request_type":
+		return "request_type must be register or heartbeat"
+	case "chk_node_request_nonces_nonce_length":
+		return "nonce must be at least 8 characters"
+	case "chk_pki_issuers_source":
+		return "issuer source must be file or external"
+	case "chk_pki_issuers_status":
+		return "issuer status must be pending, active or retired"
+	case "chk_pki_issuers_status_timestamps":
+		return "issuer lifecycle timestamps are inconsistent"
 	default:
 		return ""
 	}

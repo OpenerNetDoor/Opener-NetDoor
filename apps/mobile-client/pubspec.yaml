@@ -1,5 +1,5 @@
 name: opener_netdoor_mobile
-version: 0.1.0+1
+version: 0.2.0+1
 publish_to: none
 
 environment:
@@ -17,4 +17,3 @@ dev_dependencies:
 
 flutter:
   uses-material-design: true
-

@@ -1,13 +1,17 @@
 package commands
 
-import "fmt"
+import (
+	"context"
+
+	"github.com/opener-netdoor/opener-netdoor/apps/installer-cli/internal/app"
+	"github.com/opener-netdoor/opener-netdoor/apps/installer-cli/internal/config"
+)
 
 func Run(command string) error {
-	switch command {
-	case "install", "upgrade", "rollback", "uninstall", "backup", "restore", "healthcheck", "reset-password", "add-node", "rotate-keys", "migrate":
-		fmt.Printf("TODO: execute %s workflow\n", command)
-		return nil
-	default:
-		return fmt.Errorf("unknown command: %s", command)
+	cfg, err := config.Load("")
+	if err != nil {
+		return err
 	}
+	r := app.New(cfg)
+	return r.Run(context.Background(), command)
 }

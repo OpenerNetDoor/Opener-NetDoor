@@ -1,28 +1,26 @@
 package main
 
 import (
+	"context"
 	"log"
 	"os"
+	"os/signal"
+	"syscall"
 
 	"github.com/opener-netdoor/opener-netdoor/apps/node-agent/internal/agent"
+	"github.com/opener-netdoor/opener-netdoor/apps/node-agent/internal/config"
 )
 
 func main() {
-	cfg := agent.Config{
-		NodeID:         getenv("NODE_ID", "node-local-1"),
-		ControlPlane:   getenv("CONTROL_PLANE_URL", "http://127.0.0.1:8081"),
-		HeartbeatEvery: getenv("HEARTBEAT_EVERY", "15s"),
+	cfg, err := config.LoadFromEnv()
+	if err != nil {
+		log.Fatalf("node-agent config error: %v", err)
 	}
-	if err := agent.Run(cfg); err != nil {
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	if err := agent.Run(ctx, cfg); err != nil {
 		log.Fatalf("node-agent failed: %v", err)
 	}
 }
-
-func getenv(key, fallback string) string {
-	if v := os.Getenv(key); v != "" {
-		return v
-	}
-	return fallback
-}
-
-

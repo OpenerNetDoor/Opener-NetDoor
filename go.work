@@ -4,6 +4,7 @@ use (
 	./apps/api-gateway
 	./apps/installer-cli
 	./apps/node-agent
+	./packages/sdk-go
 	./services/core-platform
 	./services/usage-worker
 	./services/webhook-worker

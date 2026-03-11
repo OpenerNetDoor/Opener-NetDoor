@@ -124,6 +124,159 @@ func TestGatewayAdminPolicyFlowWithLiveCore(t *testing.T) {
 	}
 }
 
+func TestGatewayUsersAndKeysOwnerFlowWithLiveCore(t *testing.T) {
+	databaseURL, migrationsDir := requireIntegrationDBConfig(t)
+	db := openDB(t, databaseURL)
+	applyMigrations(t, db, migrationsDir)
+	resetData(t, db)
+
+	coreAddr := allocateAddr(t)
+	coreBaseURL := "http://" + coreAddr
+	coreCmd := startCorePlatform(t, coreAddr, databaseURL)
+	t.Cleanup(func() {
+		shutdownCoreProcess(coreCmd)
+	})
+	waitHTTPReady(t, coreBaseURL+"/internal/ready", 20*time.Second)
+
+	cfg := config.Config{
+		HTTPAddr:            ":8080",
+		CorePlatformBaseURL: coreBaseURL,
+		JWTIssuer:           "iss",
+		JWTAudience:         "aud",
+		JWTSecret:           "very-secure-secret",
+	}
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("new gateway handler: %v", err)
+	}
+	gw := httptest.NewServer(h)
+	defer gw.Close()
+
+	token := testutil.MustIssueToken(t, testutil.TokenParams{
+		Secret:   cfg.JWTSecret,
+		Issuer:   cfg.JWTIssuer,
+		Audience: cfg.JWTAudience,
+		Scopes:   []string{"admin:read", "admin:write", "platform:admin"},
+	})
+	headers := map[string]string{"Authorization": "Bearer " + token}
+
+	tenant := gatewayCreateTenant(t, gw.URL, headers, uniqueName("tenant-gw-users"))
+	user := gatewayCreateUser(t, gw.URL, headers, tenant.ID, "gw-owner-user@example.com")
+
+	users := gatewayListUsers(t, gw.URL, headers, tenant.ID)
+	if len(users) != 1 || users[0].ID != user.ID {
+		t.Fatalf("expected created user in list, got %+v", users)
+	}
+
+	blocked := gatewaySetUserStatus(t, gw.URL, headers, "/v1/admin/users/block", map[string]any{"tenant_id": tenant.ID, "user_id": user.ID})
+	if blocked.Status != "blocked" {
+		t.Fatalf("expected blocked status, got %s", blocked.Status)
+	}
+
+	status, body := gatewayRequest(t, http.MethodPost, gw.URL+"/v1/admin/access-keys", headers, map[string]any{"tenant_id": tenant.ID, "user_id": user.ID, "key_type": "vless"})
+	if status != http.StatusConflict {
+		t.Fatalf("expected 409 for blocked user key create, got %d body=%s", status, body)
+	}
+
+	unblocked := gatewaySetUserStatus(t, gw.URL, headers, "/v1/admin/users/unblock", map[string]any{"tenant_id": tenant.ID, "user_id": user.ID})
+	if unblocked.Status != "active" {
+		t.Fatalf("expected active status after unblock, got %s", unblocked.Status)
+	}
+
+	status, body = gatewayRequest(t, http.MethodPost, gw.URL+"/v1/admin/access-keys", headers, map[string]any{"tenant_id": tenant.ID, "user_id": user.ID, "key_type": "vless"})
+	if status != http.StatusCreated {
+		t.Fatalf("expected 201 for key create, got %d body=%s", status, body)
+	}
+	var createdKey struct {
+		ID string `json:"id"`
+	}
+	if err := json.Unmarshal([]byte(body), &createdKey); err != nil {
+		t.Fatalf("decode created key: %v", err)
+	}
+
+	status, body = gatewayRequest(t, http.MethodDelete, gw.URL+"/v1/admin/access-keys?id="+createdKey.ID+"&tenant_id="+tenant.ID, headers, nil)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 for key revoke, got %d body=%s", status, body)
+	}
+
+	status, body = gatewayRequest(t, http.MethodDelete, gw.URL+"/v1/admin/users?id="+user.ID+"&tenant_id="+tenant.ID, headers, nil)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 for user delete, got %d body=%s", status, body)
+	}
+
+	users = gatewayListUsers(t, gw.URL, headers, tenant.ID)
+	if len(users) != 0 {
+		t.Fatalf("expected no users after delete, got %+v", users)
+	}
+}
+
+func TestGatewayServerOwnerLifecycleWithLiveCore(t *testing.T) {
+	databaseURL, migrationsDir := requireIntegrationDBConfig(t)
+	db := openDB(t, databaseURL)
+	applyMigrations(t, db, migrationsDir)
+	resetData(t, db)
+
+	coreAddr := allocateAddr(t)
+	coreBaseURL := "http://" + coreAddr
+	coreCmd := startCorePlatform(t, coreAddr, databaseURL)
+	t.Cleanup(func() {
+		shutdownCoreProcess(coreCmd)
+	})
+	waitHTTPReady(t, coreBaseURL+"/internal/ready", 20*time.Second)
+
+	cfg := config.Config{
+		HTTPAddr:            ":8080",
+		CorePlatformBaseURL: coreBaseURL,
+		JWTIssuer:           "iss",
+		JWTAudience:         "aud",
+		JWTSecret:           "very-secure-secret",
+	}
+	h, err := NewHandler(cfg)
+	if err != nil {
+		t.Fatalf("new gateway handler: %v", err)
+	}
+	gw := httptest.NewServer(h)
+	defer gw.Close()
+
+	token := testutil.MustIssueToken(t, testutil.TokenParams{
+		Secret:   cfg.JWTSecret,
+		Issuer:   cfg.JWTIssuer,
+		Audience: cfg.JWTAudience,
+		Scopes:   []string{"admin:read", "admin:write", "platform:admin"},
+	})
+	headers := map[string]string{"Authorization": "Bearer " + token}
+
+	tenant := gatewayCreateTenant(t, gw.URL, headers, uniqueName("tenant-gw-server-owner"))
+	created := gatewayCreateNode(t, gw.URL, headers, map[string]any{
+		"tenant_id":    tenant.ID,
+		"region":       "de-central",
+		"hostname":     "de-owner-1.example.com",
+		"capabilities": []string{"heartbeat.v1", "provisioning.v1"},
+	})
+	if created.Status != "pending" {
+		t.Fatalf("expected pending status for created node, got %s", created.Status)
+	}
+
+	nodes := gatewayListNodes(t, gw.URL, headers, tenant.ID)
+	if len(nodes) != 1 {
+		t.Fatalf("expected one node, got %d", len(nodes))
+	}
+
+	detail := gatewayGetNodeDetail(t, gw.URL, headers, tenant.ID, created.ID)
+	if detail.ID != created.ID {
+		t.Fatalf("expected node detail id %s, got %s", created.ID, detail.ID)
+	}
+
+	revoked := gatewayNodeLifecycle(t, gw.URL, headers, "/v1/admin/nodes/revoke", map[string]any{"tenant_id": tenant.ID, "node_id": created.ID})
+	if revoked.Status != "revoked" {
+		t.Fatalf("expected revoked status, got %s", revoked.Status)
+	}
+
+	reactivated := gatewayNodeLifecycle(t, gw.URL, headers, "/v1/admin/nodes/reactivate", map[string]any{"tenant_id": tenant.ID, "node_id": created.ID})
+	if reactivated.Status != "pending" {
+		t.Fatalf("expected pending status after reactivate, got %s", reactivated.Status)
+	}
+}
 func TestGatewayNodeRegistrationHeartbeatFlowWithLiveCore(t *testing.T) {
 	databaseURL, migrationsDir := requireIntegrationDBConfig(t)
 	db := openDB(t, databaseURL)
@@ -170,6 +323,7 @@ func TestGatewayNodeRegistrationHeartbeatFlowWithLiveCore(t *testing.T) {
 		"contract_version": gatewayNodeContractVersion,
 		"agent_version":    "1.1.0",
 		"capabilities":     []string{"heartbeat.v1", "provisioning.v1"},
+		"nonce":            "nonce-gw-register-1",
 		"signed_at":        time.Now().UTC().Unix(),
 	}
 	register["signature"] = signGatewayRegister(register)
@@ -186,6 +340,9 @@ func TestGatewayNodeRegistrationHeartbeatFlowWithLiveCore(t *testing.T) {
 			Status     string `json:"status"`
 			NodePubKey string `json:"node_public_key"`
 		} `json:"node"`
+		Provisioning struct {
+			NodeCertificateSerial string `json:"node_certificate_serial"`
+		} `json:"provisioning"`
 	}
 	if err := json.Unmarshal([]byte(body), &registerResp); err != nil {
 		t.Fatalf("decode node register response: %v", err)
@@ -200,6 +357,8 @@ func TestGatewayNodeRegistrationHeartbeatFlowWithLiveCore(t *testing.T) {
 		"node_key_id":      registerResp.Node.NodeKeyID,
 		"contract_version": gatewayNodeContractVersion,
 		"agent_version":    "1.1.1",
+		"tls_identity":     map[string]any{"serial_number": registerResp.Provisioning.NodeCertificateSerial},
+		"nonce":            "nonce-gw-heartbeat-1",
 		"signed_at":        time.Now().UTC().Unix(),
 	}
 	heartbeat["signature"] = signGatewayHeartbeat(heartbeat, "pubkey-gw-1")
@@ -227,8 +386,17 @@ type gatewayUser struct {
 	ID string `json:"id"`
 }
 
+type gatewayUserRecord struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
+}
+
 type gatewayEffectivePolicy struct {
 	Source string `json:"source"`
+}
+type gatewayNodeRecord struct {
+	ID     string `json:"id"`
+	Status string `json:"status"`
 }
 
 func gatewayCreateTenant(t *testing.T, baseURL string, headers map[string]string, name string) gatewayTenant {
@@ -259,6 +427,90 @@ func gatewayCreateUser(t *testing.T, baseURL string, headers map[string]string, 
 	}
 	if strings.TrimSpace(out.ID) == "" {
 		t.Fatal("user id is empty")
+	}
+	return out
+}
+
+func gatewayCreateNode(t *testing.T, baseURL string, headers map[string]string, payload map[string]any) gatewayNodeRecord {
+	t.Helper()
+	status, body := gatewayRequest(t, http.MethodPost, baseURL+"/v1/admin/nodes", headers, payload)
+	if status != http.StatusCreated {
+		t.Fatalf("create node expected 201, got %d body=%s", status, body)
+	}
+	var out gatewayNodeRecord
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode node create: %v", err)
+	}
+	if strings.TrimSpace(out.ID) == "" {
+		t.Fatal("created node id is empty")
+	}
+	return out
+}
+
+func gatewayListNodes(t *testing.T, baseURL string, headers map[string]string, tenantID string) []gatewayNodeRecord {
+	t.Helper()
+	status, body := gatewayRequest(t, http.MethodGet, baseURL+"/v1/admin/nodes?tenant_id="+tenantID+"&limit=50&offset=0", headers, nil)
+	if status != http.StatusOK {
+		t.Fatalf("list nodes expected 200, got %d body=%s", status, body)
+	}
+	var out struct {
+		Items []gatewayNodeRecord `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode nodes list: %v", err)
+	}
+	return out.Items
+}
+
+func gatewayGetNodeDetail(t *testing.T, baseURL string, headers map[string]string, tenantID string, nodeID string) gatewayNodeRecord {
+	t.Helper()
+	status, body := gatewayRequest(t, http.MethodGet, baseURL+"/v1/admin/nodes/detail?tenant_id="+tenantID+"&node_id="+nodeID, headers, nil)
+	if status != http.StatusOK {
+		t.Fatalf("node detail expected 200, got %d body=%s", status, body)
+	}
+	var out gatewayNodeRecord
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode node detail: %v", err)
+	}
+	return out
+}
+
+func gatewayNodeLifecycle(t *testing.T, baseURL string, headers map[string]string, path string, payload map[string]any) gatewayNodeRecord {
+	t.Helper()
+	status, body := gatewayRequest(t, http.MethodPost, baseURL+path, headers, payload)
+	if status != http.StatusOK {
+		t.Fatalf("node lifecycle expected 200, got %d body=%s", status, body)
+	}
+	var out gatewayNodeRecord
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode node lifecycle response: %v", err)
+	}
+	return out
+}
+func gatewayListUsers(t *testing.T, baseURL string, headers map[string]string, tenantID string) []gatewayUserRecord {
+	t.Helper()
+	status, body := gatewayRequest(t, http.MethodGet, baseURL+"/v1/admin/users?tenant_id="+tenantID+"&limit=50&offset=0", headers, nil)
+	if status != http.StatusOK {
+		t.Fatalf("list users expected 200, got %d body=%s", status, body)
+	}
+	var out struct {
+		Items []gatewayUserRecord `json:"items"`
+	}
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode users list: %v", err)
+	}
+	return out.Items
+}
+
+func gatewaySetUserStatus(t *testing.T, baseURL string, headers map[string]string, endpoint string, payload map[string]any) gatewayUserRecord {
+	t.Helper()
+	status, body := gatewayRequest(t, http.MethodPost, baseURL+endpoint, headers, payload)
+	if status != http.StatusOK {
+		t.Fatalf("set user status expected 200, got %d body=%s", status, body)
+	}
+	var out gatewayUserRecord
+	if err := json.Unmarshal([]byte(body), &out); err != nil {
+		t.Fatalf("decode user status response: %v", err)
 	}
 	return out
 }
@@ -369,6 +621,9 @@ func resetData(t *testing.T, db *sql.DB) {
 	_, err := db.Exec(`
 		TRUNCATE TABLE
 		  node_heartbeats,
+		  node_request_nonces,
+		  node_certificates,
+		  pki_issuers,
 		  audit_logs,
 		  traffic_usage_hourly,
 		  user_policy_overrides,
@@ -465,6 +720,8 @@ func signGatewayRegister(req map[string]any) string {
 		toString(req["contract_version"]),
 		toString(req["agent_version"]),
 		strings.Join(caps, ","),
+		identitySerialFromMap(req["tls_identity"]),
+		toString(req["nonce"]),
 		strconv.FormatInt(toInt64(req["signed_at"]), 10),
 	}, "\n")
 	return signGatewayPayload(payload)
@@ -479,9 +736,19 @@ func signGatewayHeartbeat(req map[string]any, nodePublicKey string) string {
 		nodePublicKey,
 		toString(req["contract_version"]),
 		toString(req["agent_version"]),
+		identitySerialFromMap(req["tls_identity"]),
+		toString(req["nonce"]),
 		strconv.FormatInt(toInt64(req["signed_at"]), 10),
 	}, "\n")
 	return signGatewayPayload(payload)
+}
+
+func identitySerialFromMap(v any) string {
+	m, ok := v.(map[string]any)
+	if !ok || m == nil {
+		return ""
+	}
+	return strings.TrimSpace(toString(m["serial_number"]))
 }
 
 func signGatewayPayload(payload string) string {

@@ -1,16 +1,16 @@
 {
   "name": "opener-netdoor-monorepo",
   "private": true,
-  "version": "0.1.0",
+  "version": "0.2.0",
   "packageManager": "pnpm@10.6.2",
   "engines": {
     "node": ">=22.12.0 <23"
   },
   "scripts": {
-    "lint": "echo TODO: workspace lint",
-    "format": "echo TODO: workspace format",
-    "test": "echo TODO: workspace tests",
-    "typecheck": "echo TODO: workspace typecheck"
+    "build": "pnpm -r --filter @opener-netdoor/shared-types --filter @opener-netdoor/sdk-ts --filter @opener-netdoor/admin-web --filter @opener-netdoor/manager-desktop build",
+    "typecheck": "pnpm -r --filter @opener-netdoor/shared-types --filter @opener-netdoor/sdk-ts --filter @opener-netdoor/admin-web --filter @opener-netdoor/manager-desktop typecheck",
+    "lint": "pnpm -r --filter @opener-netdoor/admin-web --filter @opener-netdoor/manager-desktop lint",
+    "contracts:validate": "node packages/api-contracts/scripts/validate-openapi.mjs",
+    "contracts:sdk": "echo openapi generation seam defined in packages/api-contracts/README.md"
   }
 }
-

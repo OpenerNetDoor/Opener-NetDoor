@@ -1,0 +1,10 @@
+{
+  "name": "@opener-netdoor/api-contracts",
+  "version": "0.2.0",
+  "private": true,
+  "scripts": {
+    "validate": "node ./scripts/validate-openapi.mjs",
+    "sdk:ts": "echo Use openapi generator in CI pipeline seam",
+    "sdk:go": "echo Use oapi-codegen seam in CI pipeline"
+  }
+}

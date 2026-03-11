@@ -67,6 +67,42 @@ func NewHandler(cfg config.Config) (http.Handler, error) {
 		methodScope(),
 	))
 
+	mux.Handle("/v1/admin/users/block", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/users/block", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/users/unblock", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/users/unblock", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
 	mux.Handle("/v1/admin/access-keys", chain(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, _ := middleware.GetPrincipal(r.Context())
@@ -189,6 +225,37 @@ func NewHandler(cfg config.Config) (http.Handler, error) {
 
 	mux.Handle("/v1/admin/nodes", chain(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantForNodes(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+
+			forwardReq := r
+			if r.Method == http.MethodGet && p.TenantID != "" && !p.IsPlatformAdmin() && tenantID == "" {
+				q := r.URL.Query()
+				q.Set("tenant_id", p.TenantID)
+				cloned := r.Clone(r.Context())
+				u := *r.URL
+				u.RawQuery = q.Encode()
+				cloned.URL = &u
+				forwardReq = cloned
+				tenantID = p.TenantID
+			}
+
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, forwardReq, "/internal/v1/nodes", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/detail", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			if r.Method != http.MethodGet {
 				response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
 				return
@@ -210,12 +277,11 @@ func NewHandler(cfg config.Config) (http.Handler, error) {
 				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
 				return
 			}
-			px.Forward(w, forwardReq, "/internal/v1/nodes", p.Subject, p.Scopes, p.TenantID)
+			px.Forward(w, forwardReq, "/internal/v1/nodes/detail", p.Subject, p.Scopes, p.TenantID)
 		}),
 		authn,
 		methodScope(),
 	))
-
 	mux.Handle("/v1/admin/nodes/register", chain(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, _ := middleware.GetPrincipal(r.Context())
@@ -247,6 +313,211 @@ func NewHandler(cfg config.Config) (http.Handler, error) {
 				return
 			}
 			px.Forward(w, r, "/internal/v1/nodes/heartbeat", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/revoke", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/nodes/revoke", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/reactivate", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/nodes/reactivate", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/certificates", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantForNodeCertificates(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request")
+				return
+			}
+
+			forwardReq := r
+			if r.Method == http.MethodGet && p.TenantID != "" && !p.IsPlatformAdmin() && tenantID == "" {
+				q := r.URL.Query()
+				q.Set("tenant_id", p.TenantID)
+				cloned := r.Clone(r.Context())
+				u := *r.URL
+				u.RawQuery = q.Encode()
+				cloned.URL = &u
+				forwardReq = cloned
+				tenantID = p.TenantID
+			}
+
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, forwardReq, "/internal/v1/nodes/certificates", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/certificates/rotate", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/nodes/certificates/rotate", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/certificates/revoke", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/nodes/certificates/revoke", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/nodes/certificates/renew", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID, err := requestedTenantFromBody(r)
+			if err != nil {
+				response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+				return
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/nodes/certificates/renew", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/pki/issuers", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			if !p.IsPlatformAdmin() {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "only platform admin can manage pki issuers")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/pki/issuers", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/pki/issuers/activate", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			p, _ := middleware.GetPrincipal(r.Context())
+			if !p.IsPlatformAdmin() {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "only platform admin can manage pki issuers")
+				return
+			}
+			px.Forward(w, r, "/internal/v1/pki/issuers/activate", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/audit/logs", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+				return
+			}
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID := r.URL.Query().Get("tenant_id")
+			forwardReq := r
+			if p.TenantID != "" && !p.IsPlatformAdmin() && tenantID == "" {
+				q := r.URL.Query()
+				q.Set("tenant_id", p.TenantID)
+				cloned := r.Clone(r.Context())
+				u := *r.URL
+				u.RawQuery = q.Encode()
+				cloned.URL = &u
+				forwardReq = cloned
+				tenantID = p.TenantID
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, forwardReq, "/internal/v1/audit/logs", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
+	mux.Handle("/v1/admin/ops/snapshot", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+				return
+			}
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID := r.URL.Query().Get("tenant_id")
+			forwardReq := r
+			if p.TenantID != "" && !p.IsPlatformAdmin() && tenantID == "" {
+				q := r.URL.Query()
+				q.Set("tenant_id", p.TenantID)
+				cloned := r.Clone(r.Context())
+				u := *r.URL
+				u.RawQuery = q.Encode()
+				cloned.URL = &u
+				forwardReq = cloned
+				tenantID = p.TenantID
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, forwardReq, "/internal/v1/ops/snapshot", p.Subject, p.Scopes, p.TenantID)
 		}),
 		authn,
 		methodScope(),
@@ -312,7 +583,7 @@ func methodScope() func(http.Handler) http.Handler {
 
 func requestedTenantForUsers(r *http.Request) (string, error) {
 	switch r.Method {
-	case http.MethodGet:
+	case http.MethodGet, http.MethodDelete:
 		return r.URL.Query().Get("tenant_id"), nil
 	case http.MethodPost:
 		return requestedTenantFromBody(r)
@@ -361,6 +632,26 @@ func requestedTenantForEffectivePolicy(r *http.Request) (string, error) {
 	return r.URL.Query().Get("tenant_id"), nil
 }
 
+func requestedTenantForNodes(r *http.Request) (string, error) {
+	switch r.Method {
+	case http.MethodGet:
+		return r.URL.Query().Get("tenant_id"), nil
+	case http.MethodPost:
+		return requestedTenantFromBody(r)
+	default:
+		return "", nil
+	}
+}
+func requestedTenantForNodeCertificates(r *http.Request) (string, error) {
+	switch r.Method {
+	case http.MethodGet:
+		return r.URL.Query().Get("tenant_id"), nil
+	case http.MethodPost:
+		return requestedTenantFromBody(r)
+	default:
+		return "", nil
+	}
+}
 func requestedTenantFromBody(r *http.Request) (string, error) {
 	body, err := io.ReadAll(r.Body)
 	if err != nil {

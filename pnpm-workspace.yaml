@@ -1,4 +1,10 @@
 packages:
-  - "apps/admin-web"
-  - "apps/manager-desktop"
-  - "apps/desktop-client"
+  - apps/admin-web
+  - apps/manager-desktop
+  - apps/desktop-client
+  - packages/api-contracts
+  - packages/sdk-ts
+  - packages/shared-types
+onlyBuiltDependencies:
+  - esbuild
+  - sharp

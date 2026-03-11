@@ -1,0 +1,249 @@
+:root,
+:root[data-theme="light"] {
+  --bg: #f3f6fb;
+  --surface: #ffffff;
+  --surface-subtle: #eef3fb;
+  --text: #0f172a;
+  --muted: #475569;
+  --border: #d1d9e6;
+  --brand: #2563eb;
+  --danger: #dc2626;
+}
+
+:root[data-theme="dark"] {
+  --bg: #0b1220;
+  --surface: #111a2f;
+  --surface-subtle: #1d2947;
+  --text: #e2e8f0;
+  --muted: #94a3b8;
+  --border: #334155;
+  --brand: #3b82f6;
+  --danger: #ef4444;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  margin: 0;
+  color: var(--text);
+  background: var(--bg);
+  font-family: Inter, "Segoe UI", system-ui, sans-serif;
+}
+
+.desktop-shell {
+  display: grid;
+  grid-template-columns: 280px 1fr;
+  min-height: 100vh;
+}
+
+.desktop-sidebar {
+  background: #0a1221;
+  color: #dbeafe;
+  padding: 16px;
+  border-right: 1px solid #1f2a44;
+}
+
+.subtitle {
+  margin-top: 0;
+  color: #93c5fd;
+  font-size: 12px;
+}
+
+.desktop-sidebar h1 {
+  margin: 0;
+  font-size: 20px;
+}
+
+.desktop-sidebar p {
+  margin: 6px 0;
+  color: #cbd5e1;
+  font-size: 12px;
+}
+
+.desktop-nav {
+  display: grid;
+  gap: 8px;
+  margin-top: 16px;
+}
+
+.desktop-nav button {
+  border: 1px solid #334155;
+  background: #1e293b;
+  color: #e2e8f0;
+  border-radius: 8px;
+  padding: 8px 10px;
+  text-align: left;
+  cursor: pointer;
+}
+
+.desktop-nav button.active {
+  background: var(--brand);
+  border-color: var(--brand);
+}
+
+.desktop-nav button.secondary {
+  background: transparent;
+}
+
+.desktop-nav button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+  color: #ffffff;
+}
+
+.desktop-content {
+  padding: 16px;
+  display: grid;
+  gap: 12px;
+}
+
+.panel {
+  background: var(--surface);
+  border: 1px solid var(--border);
+  border-radius: 14px;
+  padding: 16px;
+}
+
+.panel h2 {
+  margin-top: 0;
+}
+
+.panel-head {
+  display: flex;
+  align-items: center;
+  justify-content: space-between;
+  margin-bottom: 12px;
+}
+
+.metrics-grid {
+  display: grid;
+  gap: 12px;
+  grid-template-columns: repeat(4, minmax(0, 1fr));
+  margin-bottom: 12px;
+}
+
+.metric-card {
+  border: 1px solid var(--border);
+  border-radius: 10px;
+  background: var(--surface-subtle);
+  padding: 10px;
+  display: grid;
+  gap: 8px;
+}
+
+.metric-card span {
+  color: var(--muted);
+  font-size: 12px;
+}
+
+.metric-card strong {
+  font-size: 20px;
+}
+
+.desktop-table {
+  width: 100%;
+  border-collapse: collapse;
+}
+
+.desktop-table th,
+.desktop-table td {
+  padding: 8px;
+  border-bottom: 1px solid var(--border);
+  text-align: left;
+  vertical-align: top;
+}
+
+.form-grid {
+  display: grid;
+  gap: 12px;
+}
+
+label {
+  display: grid;
+  gap: 6px;
+  color: var(--muted);
+}
+
+input,
+textarea,
+select,
+button {
+  font: inherit;
+}
+
+input,
+textarea,
+select {
+  width: 100%;
+  border: 1px solid var(--border);
+  border-radius: 8px;
+  padding: 8px;
+  background: var(--surface);
+  color: var(--text);
+}
+
+button {
+  border: 1px solid var(--brand);
+  background: var(--brand);
+  color: #ffffff;
+  border-radius: 8px;
+  padding: 8px 10px;
+  cursor: pointer;
+}
+
+button.secondary {
+  background: transparent;
+  color: var(--text);
+  border-color: var(--border);
+}
+
+button.danger {
+  border-color: var(--danger);
+  background: var(--danger);
+}
+
+.button-row {
+  display: flex;
+  gap: 8px;
+}
+
+pre {
+  margin: 12px 0 0;
+  background: #020617;
+  color: #dbeafe;
+  border-radius: 8px;
+  padding: 10px;
+  overflow-x: auto;
+}
+
+.login-root {
+  display: grid;
+  place-items: center;
+  min-height: 100vh;
+  background: linear-gradient(180deg, #0f172a 0%, #111827 100%);
+  padding: 16px;
+}
+
+.login-root .panel {
+  width: min(700px, 100%);
+}
+
+.error {
+  color: var(--danger);
+  border: 1px solid color-mix(in srgb, var(--danger) 45%, var(--border));
+  background: color-mix(in srgb, var(--danger) 12%, transparent);
+  border-radius: 8px;
+  padding: 8px 10px;
+}
+
+@media (max-width: 1100px) {
+  .desktop-shell {
+    grid-template-columns: 1fr;
+  }
+
+  .metrics-grid {
+    grid-template-columns: repeat(2, minmax(0, 1fr));
+  }
+}

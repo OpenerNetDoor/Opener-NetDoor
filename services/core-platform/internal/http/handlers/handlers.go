@@ -1,10 +1,12 @@
 package handlers
 
 import (
+	"context"
 	"encoding/json"
 	"net/http"
 	"strconv"
 	"strings"
+	"time"
 
 	"github.com/opener-netdoor/opener-netdoor/services/core-platform/internal/http/response"
 	"github.com/opener-netdoor/opener-netdoor/services/core-platform/internal/model"
@@ -13,6 +15,11 @@ import (
 
 type Handler struct {
 	svc service.Service
+}
+
+type nodeOwnerService interface {
+	CreateNode(ctx context.Context, actor model.ActorPrincipal, in model.CreateNodeRequest) (model.Node, error)
+	GetNode(ctx context.Context, actor model.ActorPrincipal, tenantID string, nodeID string) (model.Node, error)
 }
 
 func New(svc service.Service) *Handler {
@@ -54,9 +61,27 @@ func (h *Handler) Users(w http.ResponseWriter, r *http.Request) {
 		h.listUsers(w, r)
 	case http.MethodPost:
 		h.createUser(w, r)
+	case http.MethodDelete:
+		h.deleteUser(w, r)
 	default:
 		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
 	}
+}
+
+func (h *Handler) UsersBlock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	h.userStatusMutation(w, r, "blocked")
+}
+
+func (h *Handler) UsersUnblock(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	h.userStatusMutation(w, r, "active")
 }
 
 func (h *Handler) AccessKeys(w http.ResponseWriter, r *http.Request) {
@@ -133,26 +158,34 @@ func (h *Handler) Devices(w http.ResponseWriter, r *http.Request) {
 }
 
 func (h *Handler) Nodes(w http.ResponseWriter, r *http.Request) {
+	switch r.Method {
+	case http.MethodGet:
+		h.listNodes(w, r)
+	case http.MethodPost:
+		h.createNode(w, r)
+	default:
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+	}
+}
+
+func (h *Handler) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
 		return
 	}
 	actor := actorFromHeaders(r)
-	q := model.ListNodesQuery{
-		ListQuery: model.ListQuery{
-			Limit:  parseLimit(r.URL.Query().Get("limit")),
-			Offset: parseOffset(r.URL.Query().Get("offset")),
-		},
-		TenantID: r.URL.Query().Get("tenant_id"),
-		Status:   r.URL.Query().Get("status"),
+	nodeSvc, ok := h.svc.(nodeOwnerService)
+	if !ok {
+		response.Error(w, r, http.StatusNotImplemented, "not_implemented", "node detail is not supported by configured service")
+		return
 	}
-	items, err := h.svc.ListNodes(r.Context(), actor, q)
+	item, err := nodeSvc.GetNode(r.Context(), actor, r.URL.Query().Get("tenant_id"), r.URL.Query().Get("node_id"))
 	if err != nil {
-		status, code, message := service.ToResponse(err, "node_list_failed", "failed to list nodes")
+		status, code, message := service.ToResponse(err, "node_get_failed", "failed to get node")
 		response.Error(w, r, status, code, message)
 		return
 	}
-	response.JSON(w, http.StatusOK, map[string]any{"items": items, "limit": q.Limit, "offset": q.Offset})
+	response.JSON(w, http.StatusOK, item)
 }
 
 func (h *Handler) NodeRegister(w http.ResponseWriter, r *http.Request) {
@@ -195,6 +228,200 @@ func (h *Handler) NodeHeartbeat(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, item)
 }
 
+func (h *Handler) NodeRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	var req model.NodeLifecycleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := h.svc.RevokeNode(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_revoke_failed", "failed to revoke node")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) NodeReactivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	var req model.NodeLifecycleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := h.svc.ReactivateNode(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_reactivate_failed", "failed to reactivate node")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) NodeCertificates(w http.ResponseWriter, r *http.Request) {
+	actor := actorFromHeaders(r)
+	switch r.Method {
+	case http.MethodGet:
+		q := model.ListNodeCertificatesQuery{
+			ListQuery: model.ListQuery{
+				Limit:  parseLimit(r.URL.Query().Get("limit")),
+				Offset: parseOffset(r.URL.Query().Get("offset")),
+				Status: r.URL.Query().Get("status"),
+			},
+			TenantID: r.URL.Query().Get("tenant_id"),
+			NodeID:   r.URL.Query().Get("node_id"),
+		}
+		items, err := h.svc.ListNodeCertificates(r.Context(), actor, q)
+		if err != nil {
+			status, code, message := service.ToResponse(err, "node_certificate_list_failed", "failed to list node certificates")
+			response.Error(w, r, status, code, message)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]any{"items": items, "limit": q.Limit, "offset": q.Offset})
+	case http.MethodPost:
+		var req model.RotateNodeCertificateRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+			return
+		}
+		item, err := h.svc.IssueNodeCertificate(r.Context(), actor, req)
+		if err != nil {
+			status, code, message := service.ToResponse(err, "node_certificate_issue_failed", "failed to issue node certificate")
+			response.Error(w, r, status, code, message)
+			return
+		}
+		response.JSON(w, http.StatusOK, item)
+	default:
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+	}
+}
+
+func (h *Handler) NodeCertificatesRotate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	var req model.RotateNodeCertificateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := h.svc.RotateNodeCertificate(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_certificate_rotate_failed", "failed to rotate node certificate")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) NodeCertificatesRevoke(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	var req model.RevokeNodeCertificateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := h.svc.RevokeNodeCertificate(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_certificate_revoke_failed", "failed to revoke node certificate")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) NodeCertificatesRenew(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	var req model.RenewNodeCertificateRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := h.svc.RenewNodeCertificate(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_certificate_renew_failed", "failed to renew node certificate")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) PKIIssuers(w http.ResponseWriter, r *http.Request) {
+	actor := actorFromHeaders(r)
+	switch r.Method {
+	case http.MethodGet:
+		q := model.ListPKIIssuersQuery{
+			ListQuery: model.ListQuery{
+				Limit:  parseLimit(r.URL.Query().Get("limit")),
+				Offset: parseOffset(r.URL.Query().Get("offset")),
+				Status: r.URL.Query().Get("status"),
+			},
+			Source: r.URL.Query().Get("source"),
+		}
+		items, err := h.svc.ListPKIIssuers(r.Context(), actor, q)
+		if err != nil {
+			status, code, message := service.ToResponse(err, "issuer_list_failed", "failed to list pki issuers")
+			response.Error(w, r, status, code, message)
+			return
+		}
+		response.JSON(w, http.StatusOK, map[string]any{"items": items, "limit": q.Limit, "offset": q.Offset})
+	case http.MethodPost:
+		var req model.CreatePKIIssuerRequest
+		if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+			response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+			return
+		}
+		item, err := h.svc.CreatePKIIssuer(r.Context(), actor, req)
+		if err != nil {
+			status, code, message := service.ToResponse(err, "issuer_create_failed", "failed to create pki issuer")
+			response.Error(w, r, status, code, message)
+			return
+		}
+		response.JSON(w, http.StatusCreated, item)
+	default:
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+	}
+}
+
+func (h *Handler) PKIIssuersActivate(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	var req model.ActivatePKIIssuerRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := h.svc.ActivatePKIIssuer(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "issuer_activate_failed", "failed to activate pki issuer")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
 func (h *Handler) NodeProvisioning(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodGet {
 		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
@@ -208,6 +435,58 @@ func (h *Handler) NodeProvisioning(w http.ResponseWriter, r *http.Request) {
 	})
 	if err != nil {
 		status, code, message := service.ToResponse(err, "node_provisioning_failed", "failed to get node provisioning")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) AuditLogs(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	since, err := parseTimeQuery(r.URL.Query().Get("since"))
+	if err != nil {
+		response.Error(w, r, http.StatusBadRequest, "validation_error", "invalid since value")
+		return
+	}
+	until, err := parseTimeQuery(r.URL.Query().Get("until"))
+	if err != nil {
+		response.Error(w, r, http.StatusBadRequest, "validation_error", "invalid until value")
+		return
+	}
+	q := model.ListAuditLogsQuery{
+		ListQuery: model.ListQuery{
+			Limit:  parseLimit(r.URL.Query().Get("limit")),
+			Offset: parseOffset(r.URL.Query().Get("offset")),
+		},
+		TenantID:   r.URL.Query().Get("tenant_id"),
+		Action:     r.URL.Query().Get("action"),
+		ActorType:  r.URL.Query().Get("actor_type"),
+		TargetType: r.URL.Query().Get("target_type"),
+		Since:      since,
+		Until:      until,
+	}
+	items, err := h.svc.ListAuditLogs(r.Context(), actor, q)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "audit_log_list_failed", "failed to list audit logs")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]any{"items": items, "limit": q.Limit, "offset": q.Offset})
+}
+
+func (h *Handler) OpsSnapshot(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	item, err := h.svc.GetOpsSnapshot(r.Context(), actor, r.URL.Query().Get("tenant_id"))
+	if err != nil {
+		status, code, message := service.ToResponse(err, "ops_snapshot_failed", "failed to load operations snapshot")
 		response.Error(w, r, status, code, message)
 		return
 	}
@@ -279,6 +558,97 @@ func (h *Handler) createUser(w http.ResponseWriter, r *http.Request) {
 		return
 	}
 	response.JSON(w, http.StatusCreated, item)
+}
+
+func (h *Handler) listNodes(w http.ResponseWriter, r *http.Request) {
+	actor := actorFromHeaders(r)
+	q := model.ListNodesQuery{
+		ListQuery: model.ListQuery{
+			Limit:  parseLimit(r.URL.Query().Get("limit")),
+			Offset: parseOffset(r.URL.Query().Get("offset")),
+		},
+		TenantID: r.URL.Query().Get("tenant_id"),
+		Status:   r.URL.Query().Get("status"),
+	}
+	items, err := h.svc.ListNodes(r.Context(), actor, q)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_list_failed", "failed to list nodes")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]any{"items": items, "limit": q.Limit, "offset": q.Offset})
+}
+
+func (h *Handler) createNode(w http.ResponseWriter, r *http.Request) {
+	actor := actorFromHeaders(r)
+	nodeSvc, ok := h.svc.(nodeOwnerService)
+	if !ok {
+		response.Error(w, r, http.StatusNotImplemented, "not_implemented", "node create is not supported by configured service")
+		return
+	}
+	var req model.CreateNodeRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := nodeSvc.CreateNode(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_create_failed", "failed to create node")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusCreated, item)
+}
+func (h *Handler) deleteUser(w http.ResponseWriter, r *http.Request) {
+	actor := actorFromHeaders(r)
+	req := model.UserLifecycleRequest{
+		TenantID: r.URL.Query().Get("tenant_id"),
+		UserID:   r.URL.Query().Get("id"),
+	}
+	if err := h.svc.DeleteUser(r.Context(), actor, req); err != nil {
+		status, code, message := service.ToResponse(err, "user_delete_failed", "failed to delete user")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, map[string]any{"deleted": true, "id": req.UserID, "tenant_id": req.TenantID})
+}
+
+func (h *Handler) userStatusMutation(w http.ResponseWriter, r *http.Request, status string) {
+	actor := actorFromHeaders(r)
+	var req model.UserLifecycleRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+
+	var (
+		item model.User
+		err  error
+	)
+	switch status {
+	case "blocked":
+		item, err = h.svc.BlockUser(r.Context(), actor, req)
+	case "active":
+		item, err = h.svc.UnblockUser(r.Context(), actor, req)
+	default:
+		response.Error(w, r, http.StatusBadRequest, "validation_error", "invalid status transition")
+		return
+	}
+	if err != nil {
+		fallback := "user_update_failed"
+		message := "failed to update user"
+		if status == "blocked" {
+			fallback = "user_block_failed"
+			message = "failed to block user"
+		} else if status == "active" {
+			fallback = "user_unblock_failed"
+			message = "failed to unblock user"
+		}
+		statusCode, code, msg := service.ToResponse(err, fallback, message)
+		response.Error(w, r, statusCode, code, msg)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
 }
 
 func (h *Handler) listAccessKeys(w http.ResponseWriter, r *http.Request) {
@@ -467,4 +837,17 @@ func parseOffset(raw string) int {
 		return 0
 	}
 	return n
+}
+
+func parseTimeQuery(raw string) (*time.Time, error) {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return nil, nil
+	}
+	parsed, err := time.Parse(time.RFC3339, raw)
+	if err != nil {
+		return nil, err
+	}
+	parsed = parsed.UTC()
+	return &parsed, nil
 }

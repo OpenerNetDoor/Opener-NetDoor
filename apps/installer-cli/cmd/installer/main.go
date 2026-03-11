@@ -1,24 +1,43 @@
 package main
 
 import (
+	"context"
 	"flag"
 	"fmt"
 	"os"
+	"os/signal"
+	"syscall"
 
-	"github.com/opener-netdoor/opener-netdoor/apps/installer-cli/internal/commands"
+	"github.com/opener-netdoor/opener-netdoor/apps/installer-cli/internal/app"
+	"github.com/opener-netdoor/opener-netdoor/apps/installer-cli/internal/config"
 )
 
 func main() {
+	var configPath string
+	flag.StringVar(&configPath, "config", "", "optional installer config file (.env style)")
+	flag.Usage = func() {
+		fmt.Fprintln(flag.CommandLine.Output(), "usage: installer [--config path] <install|upgrade|rollback|backup|restore|doctor>")
+		fmt.Fprintln(flag.CommandLine.Output(), "example: installer install")
+	}
 	flag.Parse()
+
 	if flag.NArg() < 1 {
-		fmt.Println("usage: installer <install|upgrade|rollback|uninstall|backup|restore|healthcheck|reset-password|add-node|rotate-keys|migrate>")
+		flag.Usage()
 		os.Exit(2)
 	}
-	cmd := flag.Arg(0)
-	if err := commands.Run(cmd); err != nil {
-		fmt.Println(err)
+
+	cfg, err := config.Load(configPath)
+	if err != nil {
+		fmt.Fprintf(os.Stderr, "config load failed: %v\n", err)
+		os.Exit(1)
+	}
+
+	ctx, stop := signal.NotifyContext(context.Background(), os.Interrupt, syscall.SIGTERM)
+	defer stop()
+
+	r := app.New(cfg)
+	if err := r.Run(ctx, flag.Arg(0)); err != nil {
+		fmt.Fprintf(os.Stderr, "command failed: %v\n", err)
 		os.Exit(1)
 	}
 }
-
-
