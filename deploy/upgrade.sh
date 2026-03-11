@@ -5,17 +5,17 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
 source "${SCRIPT_DIR}/scripts/lib.sh"
 
-ROTATE_TOKEN="false"
+ROTATE_ADMIN_SECRET="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --rotate-owner-token)
-      ROTATE_TOKEN="true"
+    --rotate-admin-secret)
+      ROTATE_ADMIN_SECRET="true"
       ;;
     -h|--help)
       cat <<'EOF'
 Usage:
-  bash deploy/upgrade.sh [--rotate-owner-token]
+  bash deploy/upgrade.sh [--rotate-admin-secret]
 EOF
       exit 0
       ;;
@@ -27,13 +27,16 @@ EOF
 done
 
 require_cmd docker
+require_cmd jq
 ensure_env_file
 load_env_file
 
+bash "${SCRIPT_DIR}/scripts/generate-reality-keys.sh"
+load_env_file
 bash "${SCRIPT_DIR}/scripts/render-caddyfile.sh"
 
 log "pulling latest base images"
-compose pull postgres redis nats caddy || warn "compose pull completed with warnings"
+compose pull postgres redis nats caddy xray || warn "compose pull completed with warnings"
 
 log "updating infrastructure"
 compose up -d postgres redis nats
@@ -46,17 +49,25 @@ compose up -d --build core-platform api-gateway admin-web caddy
 
 bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
 
-bootstrap_args=()
-if [[ "${ROTATE_TOKEN}" == "true" ]]; then
-  bootstrap_args+=(--rotate-token)
+owner_args=()
+if [[ "${ROTATE_ADMIN_SECRET}" == "true" ]]; then
+  owner_args+=(--rotate-secret)
 fi
-bash "${SCRIPT_DIR}/scripts/bootstrap-owner.sh" "${bootstrap_args[@]}" >/dev/null
+owner_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-owner.sh" "${owner_args[@]}")"
+admin_access_url="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL=/{print $2}' | tail -n1)"
+
+runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
+runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
+
+compose up -d xray
 
 cat <<EOF
 
 Opener NetDoor upgrade completed.
 Panel URL: ${PUBLIC_BASE_URL}
+Admin access URL: ${admin_access_url}
 HTTPS enabled: ${HTTPS_ENABLED}
+Runtime node: ${runtime_node_id}
 
 EOF
 

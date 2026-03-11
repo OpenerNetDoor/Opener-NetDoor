@@ -340,6 +340,21 @@ func (f fakeService) GetOpsSnapshot(_ context.Context, actor model.ActorPrincipa
 	}, nil
 }
 
+func (f fakeService) GetOpsAnalytics(_ context.Context, actor model.ActorPrincipal, tenantID string) (model.OpsAnalytics, error) {
+	if tenantID != "" && !actor.CanAccessTenant(tenantID) {
+		return model.OpsAnalytics{}, &service.AppError{Status: 403, Code: "forbidden", Message: "actor cannot access requested tenant"}
+	}
+	return model.OpsAnalytics{
+		TenantID:        tenantID,
+		GeneratedAt:     time.Now(),
+		TotalUsers:      10,
+		ActiveUsers:     8,
+		ActiveKeys:      12,
+		OnlineServers:   3,
+		TrafficBytes24h: 1024,
+	}, nil
+}
+
 func TestCreateTenantForbiddenForTenantScopedActor(t *testing.T) {
 	h := New(fakeService{})
 	req := httptest.NewRequest(http.MethodPost, "/internal/v1/tenants", strings.NewReader(`{"name":"Acme"}`))
@@ -626,6 +641,19 @@ func TestOpsSnapshotEndpoint(t *testing.T) {
 	rr := httptest.NewRecorder()
 
 	h.OpsSnapshot(rr, req)
+	if rr.Code != http.StatusOK {
+		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rr.Code, rr.Body.String())
+	}
+}
+
+func TestOpsAnalyticsEndpoint(t *testing.T) {
+	h := New(fakeService{})
+	req := httptest.NewRequest(http.MethodGet, "/internal/v1/ops/analytics?tenant_id=tenant-a", nil)
+	req.Header.Set("X-Actor-Tenant-ID", "tenant-a")
+	req.Header.Set("X-Actor-Scopes", "admin:read")
+	rr := httptest.NewRecorder()
+
+	h.OpsAnalytics(rr, req)
 	if rr.Code != http.StatusOK {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}

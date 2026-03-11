@@ -108,4 +108,23 @@ func TestCoreService_AuditLogsAndOpsSnapshot(t *testing.T) {
 	if snapshot.TrafficBytes24h < 500 {
 		t.Fatalf("expected traffic bytes >= 500, got %d", snapshot.TrafficBytes24h)
 	}
+	analytics, err := svc.GetOpsAnalytics(t.Context(), tenantActor, "")
+	if err != nil {
+		t.Fatalf("get ops analytics: %v", err)
+	}
+	if analytics.TotalUsers < 1 {
+		t.Fatalf("expected total users >= 1, got %d", analytics.TotalUsers)
+	}
+	if analytics.ActiveUsers < 1 {
+		t.Fatalf("expected active users >= 1, got %d", analytics.ActiveUsers)
+	}
+	if analytics.ActiveKeys != 0 {
+		t.Fatalf("expected active keys = 0, got %d", analytics.ActiveKeys)
+	}
+	if analytics.TrafficBytes24h < 500 {
+		t.Fatalf("expected analytics traffic bytes >= 500, got %d", analytics.TrafficBytes24h)
+	}
+	if len(analytics.ProtocolUsage24h) == 0 {
+		t.Fatal("expected non-empty protocol usage")
+	}
 }

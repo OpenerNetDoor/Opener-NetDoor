@@ -5,27 +5,23 @@ import Link from "next/link";
 import { AdminShell } from "../../../components/admin-shell";
 import { RouteGuard } from "../../../components/route-guard";
 import { ActionButton, Card, PageTitle, StatusBadge } from "../../../components/ui";
-import { clearSession, getSession } from "../../../lib/auth/session";
+import { getSession, logoutSession } from "../../../lib/auth/session";
 
 export default function SecuritySettingsPage() {
   const session = useMemo(() => getSession(), []);
 
-  const tokenFingerprint = useMemo(() => {
-    if (!session?.token) {
-      return "n/a";
-    }
-    return `${session.token.slice(0, 10)}...${session.token.slice(-6)}`;
-  }, [session?.token]);
-
   return (
     <RouteGuard requiredScopes={["admin:read"]}>
       <AdminShell>
-        <PageTitle title="Settings · Security" subtitle="Session controls and access visibility." />
+        <PageTitle title="Settings · Security" subtitle="Cookie session controls and access visibility." />
 
         <div className="grid-two">
           <Card title="Session">
             <p>
-              token fingerprint <code>{tokenFingerprint}</code>
+              Subject: <code>{session?.subject ?? "n/a"}</code>
+            </p>
+            <p>
+              Expires: <code>{session?.expiresAt ?? "n/a"}</code>
             </p>
             <p>Use logout when handing over workstation access.</p>
             <div className="row">
@@ -39,11 +35,12 @@ export default function SecuritySettingsPage() {
             <ActionButton
               variant="danger"
               onClick={() => {
-                clearSession();
-                window.location.href = "/login";
+                void logoutSession(session?.baseUrl).finally(() => {
+                  window.location.href = "/login";
+                });
               }}
             >
-              Clear local session
+              Logout session
             </ActionButton>
             <div style={{ marginTop: 10 }}>
               <Link href="/advanced">Open advanced diagnostics</Link>

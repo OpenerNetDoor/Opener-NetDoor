@@ -42,14 +42,22 @@ curl -fsS http://127.0.0.1:8080/v1/health
 
 ## Self-Hosted VPS Install
 
+One-click install (recommended):
+
 ```bash
-bash deploy/install.sh --ip-mode
+bash <(curl -fsSL https://raw.githubusercontent.com/opener-netdoor/opener-netdoor/main/install.sh) --ip-mode
 ```
 
 Domain + HTTPS mode:
 
 ```bash
-bash deploy/install.sh --domain panel.example.com --email ops@example.com
+bash <(curl -fsSL https://raw.githubusercontent.com/opener-netdoor/opener-netdoor/main/install.sh) --domain panel.example.com --email ops@example.com
+```
+
+Direct repo script mode:
+
+```bash
+bash deploy/install.sh --ip-mode
 ```
 
 See [deploy/README.md](deploy/README.md) for full deployment details.
@@ -74,3 +82,4 @@ Read:
 
 - OpenAPI in `packages/api-contracts/openapi/openapi.v1.yaml` is source-of-truth.
 - Stage 12 adds additive skeletons only and does not rewrite Stage 1–11 runtime contracts.
+

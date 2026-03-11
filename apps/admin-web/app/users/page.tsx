@@ -289,6 +289,8 @@ export default function UsersPage() {
     }
   };
 
+  const keyMaterial = (key: AccessKey): string => key.connection_uri?.trim() || key.secret_ref;
+
   const onCopy = async (keyId: string, value: string) => {
     if (!value) {
       return;
@@ -358,10 +360,16 @@ export default function UsersPage() {
                 header: "Traffic",
                 render: (row) => (
                   <div style={{ minWidth: 180 }}>
-                    <ProgressBar
-                      value={row.trafficPercent}
-                      hint={`${formatBytes(row.trafficUsedBytes)} / ${formatBytes(row.trafficLimitBytes)}`}
-                    />
+                    {typeof row.trafficPercent === "number" &&
+                    typeof row.trafficUsedBytes === "number" &&
+                    typeof row.trafficLimitBytes === "number" ? (
+                      <ProgressBar
+                        value={row.trafficPercent}
+                        hint={`${formatBytes(row.trafficUsedBytes)} / ${formatBytes(row.trafficLimitBytes)}`}
+                      />
+                    ) : (
+                      <span style={{ color: "var(--nd-text-muted)" }}>No data</span>
+                    )}
                   </div>
                 ),
               },
@@ -382,11 +390,11 @@ export default function UsersPage() {
                       fontWeight: 600,
                     }}
                   >
-                    {row.subscription}
+                    {row.subscription ?? "No data"}
                   </span>
                 ),
               },
-              { id: "expiry", header: "Expiry", render: (row) => formatDateTime(row.expiresAt) },
+              { id: "expiry", header: "Expiry", render: (row) => (row.expiresAt ? formatDateTime(row.expiresAt) : <span style={{ color: "var(--nd-text-muted)" }}>No data</span>) },
               {
                 id: "actions",
                 header: "Actions",
@@ -548,13 +556,13 @@ export default function UsersPage() {
                     <button
                       className="nd-icon-btn is-secondary"
                       type="button"
-                      onClick={() => void onCopy(`new-${createdKeyMaterial.id}`, createdKeyMaterial.secret_ref)}
+                      onClick={() => void onCopy(`new-${createdKeyMaterial.id}`, keyMaterial(createdKeyMaterial))}
                       aria-label="Copy newly created key material"
                     >
                       <Copy size={15} />
                     </button>
                   </div>
-                  <code style={{ display: "block", marginTop: 8, overflowWrap: "anywhere" }}>{createdKeyMaterial.secret_ref}</code>
+                  <code style={{ display: "block", marginTop: 8, overflowWrap: "anywhere" }}>{keyMaterial(createdKeyMaterial)}</code>
                   {copiedKeyId === `new-${createdKeyMaterial.id}` ? (
                     <span style={{ marginTop: 6, display: "inline-block", color: "var(--nd-success)", fontSize: 12 }}>Copied</span>
                   ) : null}
@@ -580,8 +588,8 @@ export default function UsersPage() {
                             <button
                               className="nd-icon-btn is-secondary"
                               type="button"
-                              onClick={() => void onCopy(key.id, key.secret_ref)}
-                              aria-label="Copy key reference"
+                              onClick={() => void onCopy(key.id, keyMaterial(key))}
+                              aria-label="Copy key material"
                             >
                               <Copy size={15} />
                             </button>
@@ -596,7 +604,7 @@ export default function UsersPage() {
                             </button>
                           </div>
                         </div>
-                        <code style={{ display: "block", marginTop: 8, overflowWrap: "anywhere" }}>{key.secret_ref}</code>
+                        <code style={{ display: "block", marginTop: 8, overflowWrap: "anywhere" }}>{keyMaterial(key)}</code>
                         <small style={{ color: "var(--nd-text-muted)", display: "block", marginTop: 6 }}>
                           Created {formatDateTime(key.created_at)}
                         </small>
@@ -615,3 +623,8 @@ export default function UsersPage() {
     </RouteGuard>
   );
 }
+
+
+
+
+

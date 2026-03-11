@@ -2,12 +2,20 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import Link from "next/link";
-import type { AuditLogRecord, HealthResponse, Node, OpsSnapshot, User } from "@opener-netdoor/shared-types";
+import type {
+  AuditLogRecord,
+  HealthResponse,
+  Node,
+  OpsAnalytics,
+  OpsSnapshot,
+  User,
+} from "@opener-netdoor/shared-types";
 import { ArrowUpRight, Plus, RefreshCw } from "lucide-react";
 import { AdminShell } from "../../components/admin-shell";
 import { RouteGuard } from "../../components/route-guard";
 import {
   Card,
+  EmptyState,
   ErrorState,
   LoadingState,
   PageTitle,
@@ -15,12 +23,13 @@ import {
   StatusBadge,
 } from "../../components/ui";
 import { useAPIClient, useOwnerScopeId } from "../../lib/api/client";
-import { buildDashboardCards, buildTrafficSeries, DASHBOARD_ACTIONS } from "../../lib/adapters/dashboard";
-import { formatBytes } from "../../lib/format";
+import { buildDashboardCards, DASHBOARD_ACTIONS } from "../../lib/adapters/dashboard";
+import { formatBytes, formatRelativeTime } from "../../lib/format";
 import { SupportActionList } from "../../components/domain";
 import { subscribeAdminDataChanged } from "../../lib/events/admin-data";
 
 interface ActivityRow {
+  id: string;
   user: string;
   action: string;
   server: string;
@@ -40,6 +49,22 @@ function linePath(values: number[], width: number, height: number): string {
     .join(" ");
 }
 
+function metadataString(record: AuditLogRecord, key: string): string | undefined {
+  const value = record.metadata?.[key];
+  if (typeof value === "string" && value.trim().length > 0) {
+    return value;
+  }
+  return undefined;
+}
+
+function metadataNumber(record: AuditLogRecord, key: string): number | undefined {
+  const value = record.metadata?.[key];
+  if (typeof value === "number" && Number.isFinite(value) && value >= 0) {
+    return value;
+  }
+  return undefined;
+}
+
 export default function DashboardPage() {
   const api = useAPIClient();
   const scopeId = useOwnerScopeId();
@@ -47,9 +72,9 @@ export default function DashboardPage() {
   const [health, setHealth] = useState<HealthResponse | null>(null);
   const [ready, setReady] = useState<HealthResponse | null>(null);
   const [snapshot, setSnapshot] = useState<OpsSnapshot | null>(null);
+  const [analytics, setAnalytics] = useState<OpsAnalytics | null>(null);
   const [users, setUsers] = useState<User[]>([]);
   const [nodes, setNodes] = useState<Node[]>([]);
-  const [accessKeyCount, setAccessKeyCount] = useState(0);
   const [recentAudit, setRecentAudit] = useState<AuditLogRecord[]>([]);
   const [error, setError] = useState("");
 
@@ -58,11 +83,15 @@ export default function DashboardPage() {
       return;
     }
     try {
-      const [h, r, s] = await Promise.all([api.health(), api.ready(), api.opsSnapshot(scopeId)]);
+      const [h, r, s, a] = await Promise.all([
+        api.health(),
+        api.ready(),
+        api.opsSnapshot(scopeId),
+        api.opsAnalytics(scopeId),
+      ]);
 
-      const [usersRes, keysRes, nodesRes, auditRes] = await Promise.allSettled([
+      const [usersRes, nodesRes, auditRes] = await Promise.allSettled([
         api.listUsersPage({ tenantId: scopeId, limit: 100, offset: 0 }),
-        api.listAccessKeysPage({ tenantId: scopeId, limit: 100, offset: 0 }),
         api.listNodesPage({ tenantId: scopeId, limit: 100, offset: 0 }),
         api.listAuditLogs({ tenantId: scopeId, limit: 12, offset: 0 }),
       ]);
@@ -70,8 +99,8 @@ export default function DashboardPage() {
       setHealth(h);
       setReady(r);
       setSnapshot(s);
+      setAnalytics(a);
       setUsers(usersRes.status === "fulfilled" ? usersRes.value.items : []);
-      setAccessKeyCount(keysRes.status === "fulfilled" ? keysRes.value.items.length : 0);
       setNodes(nodesRes.status === "fulfilled" ? nodesRes.value.items : []);
       setRecentAudit(auditRes.status === "fulfilled" ? auditRes.value.items : []);
       setError("");
@@ -102,30 +131,19 @@ export default function DashboardPage() {
     });
   }, [loadDashboard]);
 
-  const newUsers7d = useMemo(
-    () =>
-      users.filter((item) => {
-        const created = new Date(item.created_at).getTime();
-        return Number.isFinite(created) && Date.now() - created <= 7 * 24 * 60 * 60 * 1000;
-      }).length,
-    [users],
-  );
-
   const cards = useMemo(
     () =>
       buildDashboardCards({
-        userCount: users.length,
-        nodeCount: nodes.length,
-        newUsers: newUsers7d,
-        snapshot,
+        fallbackUserCount: users.filter((item) => item.status === "active").length,
+        fallbackNodeCount: nodes.length,
+        analytics,
       }),
-    [newUsers7d, nodes.length, snapshot, users.length],
+    [analytics, nodes.length, users],
   );
 
-  const traffic = useMemo(() => buildTrafficSeries(snapshot), [snapshot]);
-
-  const incoming = useMemo(() => traffic.map((item) => item.incoming), [traffic]);
-  const outgoing = useMemo(() => traffic.map((item) => item.outgoing), [traffic]);
+  const traffic = useMemo(() => analytics?.traffic_history_7d ?? [], [analytics]);
+  const incoming = useMemo(() => traffic.map((item) => item.bytes_in / (1024 * 1024 * 1024)), [traffic]);
+  const outgoing = useMemo(() => traffic.map((item) => item.bytes_out / (1024 * 1024 * 1024)), [traffic]);
 
   const serverStatus = useMemo(
     () =>
@@ -133,21 +151,25 @@ export default function DashboardPage() {
         id: node.id,
         code: node.region.slice(0, 2).toUpperCase() || "--",
         name: node.hostname,
-        users: Math.max(1, Math.round((node.id.length * 37) % 420)),
+        detail: node.last_heartbeat_at ? `heartbeat ${formatRelativeTime(node.last_heartbeat_at)}` : "no heartbeat yet",
         status: node.status,
       })),
     [nodes],
   );
 
   const activity = useMemo<ActivityRow[]>(() => {
-    return recentAudit.slice(0, 6).map((item, index) => ({
-      user: users[index % Math.max(1, users.length)]?.email ?? `user-${index + 1}@example.com`,
-      action: item.action.includes("revoke") ? "Disconnected" : "Connected",
-      server: nodes[index % Math.max(1, nodes.length)]?.hostname ?? "server",
-      when: new Date(item.created_at).toLocaleTimeString([], { hour: "2-digit", minute: "2-digit" }),
-      traffic: formatBytes((index + 1) * 220 * 1024 * 1024),
+    return recentAudit.slice(0, 6).map((item) => ({
+      id: item.id,
+      user: metadataString(item, "email") ?? item.actor_type ?? "No data",
+      action: item.action,
+      server: metadataString(item, "hostname") ?? item.target_id ?? "No data",
+      when: formatRelativeTime(item.created_at),
+      traffic: (() => {
+        const bytes = metadataNumber(item, "bytes_total");
+        return typeof bytes === "number" ? formatBytes(bytes) : "No data";
+      })(),
     }));
-  }, [nodes, recentAudit, users]);
+  }, [recentAudit]);
 
   const maxY = Math.max(...incoming, ...outgoing, 1);
 
@@ -157,7 +179,7 @@ export default function DashboardPage() {
         <PageTitle
           title="Dashboard"
           subtitle="Overview of your VPN service performance"
-          actions={<span style={{ color: "var(--nd-text-muted)", fontSize: 12 }}>Last updated: just now</span>}
+          actions={<span style={{ color: "var(--nd-text-muted)", fontSize: 12 }}>Last updated: {formatRelativeTime(analytics?.generated_at)}</span>}
         />
 
         {error ? <ErrorState message={error} /> : null}
@@ -171,7 +193,6 @@ export default function DashboardPage() {
               delta={card.delta}
               tone={card.tone}
               icon={<card.icon size={18} strokeWidth={2} />}
-              helper="vs last week"
             />
           ))}
         </section>
@@ -191,8 +212,10 @@ export default function DashboardPage() {
               </div>
             }
           >
-            {traffic.length === 0 ? (
-              <LoadingState label="Waiting for traffic metrics..." />
+            {analytics === null ? (
+              <LoadingState label="Loading traffic metrics..." />
+            ) : traffic.length === 0 ? (
+              <EmptyState title="No data" description="Traffic history is not available yet." />
             ) : (
               <svg className="nd-traffic-chart" viewBox="0 0 760 300" role="img" aria-label="Traffic chart">
                 {Array.from({ length: 5 }).map((_, index) => {
@@ -230,14 +253,14 @@ export default function DashboardPage() {
 
                 {traffic.map((point, index) => (
                   <text
-                    key={point.label}
+                    key={point.ts_hour}
                     x={50 + (680 / Math.max(traffic.length - 1, 1)) * index}
                     y="282"
                     fill="var(--nd-text-dim)"
                     fontSize="12"
                     textAnchor="middle"
                   >
-                    {point.label}
+                    {new Date(point.ts_hour).toLocaleDateString([], { month: "short", day: "numeric" })}
                   </text>
                 ))}
                 <text x="44" y="40" fill="var(--nd-text-dim)" fontSize="11">
@@ -253,20 +276,24 @@ export default function DashboardPage() {
             </Card>
 
             <Card title="Server Status">
-              <div className="nd-server-list">
-                {serverStatus.map((item) => (
-                  <article key={item.id} className="nd-server-item">
-                    <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
-                      <span className="nd-server-flag">{item.code}</span>
-                      <div>
-                        <strong>{item.name}</strong>
-                        <div style={{ color: "var(--nd-text-muted)", fontSize: 12 }}>{item.users} users</div>
+              {serverStatus.length === 0 ? (
+                <EmptyState title="No data" description="No servers available yet." />
+              ) : (
+                <div className="nd-server-list">
+                  {serverStatus.map((item) => (
+                    <article key={item.id} className="nd-server-item">
+                      <div style={{ display: "flex", alignItems: "center", gap: 10 }}>
+                        <span className="nd-server-flag">{item.code}</span>
+                        <div>
+                          <strong>{item.name}</strong>
+                          <div style={{ color: "var(--nd-text-muted)", fontSize: 12 }}>{item.detail}</div>
+                        </div>
                       </div>
-                    </div>
-                    <StatusBadge value={item.status === "active" ? "Online" : item.status} />
-                  </article>
-                ))}
-              </div>
+                      <StatusBadge value={item.status === "active" ? "Online" : item.status} />
+                    </article>
+                  ))}
+                </div>
+              )}
             </Card>
           </div>
         </section>
@@ -280,37 +307,41 @@ export default function DashboardPage() {
           }
           className="nd-activity-table"
         >
-          <div className="nd-table-wrap">
-            <table className="nd-table">
-              <thead>
-                <tr>
-                  <th>User</th>
-                  <th>Action</th>
-                  <th>Server</th>
-                  <th>Time</th>
-                  <th>Traffic</th>
-                </tr>
-              </thead>
-              <tbody>
-                {activity.map((row, index) => (
-                  <tr key={`${row.user}-${index}`}>
-                    <td>
-                      <div className="nd-user-cell">
-                        <span className="nd-avatar">{row.user[0]?.toUpperCase() ?? "U"}</span>
-                        <span>{row.user}</span>
-                      </div>
-                    </td>
-                    <td>
-                      <StatusBadge value={row.action} />
-                    </td>
-                    <td>{row.server}</td>
-                    <td>{row.when}</td>
-                    <td>{row.traffic}</td>
+          {activity.length === 0 ? (
+            <EmptyState title="No data" description="No recent activity events available." />
+          ) : (
+            <div className="nd-table-wrap">
+              <table className="nd-table">
+                <thead>
+                  <tr>
+                    <th>User</th>
+                    <th>Action</th>
+                    <th>Server</th>
+                    <th>Time</th>
+                    <th>Traffic</th>
                   </tr>
-                ))}
-              </tbody>
-            </table>
-          </div>
+                </thead>
+                <tbody>
+                  {activity.map((row) => (
+                    <tr key={row.id}>
+                      <td>
+                        <div className="nd-user-cell">
+                          <span className="nd-avatar">{row.user[0]?.toUpperCase() ?? "U"}</span>
+                          <span>{row.user}</span>
+                        </div>
+                      </td>
+                      <td>
+                        <StatusBadge value={row.action} />
+                      </td>
+                      <td>{row.server}</td>
+                      <td>{row.when}</td>
+                      <td>{row.traffic}</td>
+                    </tr>
+                  ))}
+                </tbody>
+              </table>
+            </div>
+          )}
 
           <div style={{ marginTop: 14, display: "flex", gap: 8, flexWrap: "wrap" }}>
             <button className="nd-btn is-secondary" type="button" disabled>
@@ -327,14 +358,12 @@ export default function DashboardPage() {
           </div>
 
           <div style={{ marginTop: 10, display: "flex", gap: 10, flexWrap: "wrap" }}>
-            <StatusBadge value={`keys ${accessKeyCount}`} />
             <StatusBadge value={`health ${health?.status ?? "unknown"}`} />
             <StatusBadge value={`ready ${ready?.status ?? "unknown"}`} />
+            <StatusBadge value={`snapshot ${snapshot ? "ok" : "n/a"}`} />
           </div>
         </Card>
       </AdminShell>
     </RouteGuard>
   );
 }
-
-

@@ -13,9 +13,9 @@ import {
   UserRound,
 } from "lucide-react";
 import type { AdminSession } from "../../lib/auth/session";
-import { clearSession } from "../../lib/auth/session";
+import { logoutSession } from "../../lib/auth/session";
 import { formatDateTime, formatRelativeTime } from "../../lib/format";
-import type { NotificationView } from "../../lib/mock/notifications";
+import type { NotificationView } from "../../lib/adapters/notifications";
 import { cn } from "../../lib/format";
 import { NotificationItem } from "../ui";
 
@@ -134,8 +134,9 @@ export function Topbar({ session, title, theme, onThemeChange, notifications, on
                 className={cn("nd-menu-item", "danger")}
                 type="button"
                 onClick={() => {
-                  clearSession();
-                  window.location.href = "/login";
+                  void logoutSession(session?.baseUrl).finally(() => {
+                    window.location.href = "/login";
+                  });
                 }}
               >
                 <LogOut size={14} /> Logout

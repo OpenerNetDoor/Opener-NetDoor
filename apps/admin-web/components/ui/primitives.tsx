@@ -2,7 +2,7 @@
 
 import type { ReactNode } from "react";
 import { Search, X } from "lucide-react";
-import type { NotificationView } from "../../lib/mock/notifications";
+import type { NotificationView } from "../../lib/adapters/notifications";
 import { cn } from "../../lib/format";
 
 export function SectionHeader({
@@ -83,8 +83,8 @@ export function StatCard({
       <div className="nd-stat-copy">
         <p>{label}</p>
         <strong>{value}</strong>
-        <div className={cn("nd-delta", `is-${tone === "neutral" ? "success" : tone}`)}>{delta ?? "+0%"}</div>
-        <span>{helper ?? "vs last week"}</span>
+        {delta ? <div className={cn("nd-delta", `is-${tone === "neutral" ? "success" : tone}`)}>{delta}</div> : null}
+        {helper ? <span>{helper}</span> : null}
       </div>
     </article>
   );
@@ -497,3 +497,4 @@ function asRecord(value: unknown): Record<string, unknown> {
   }
   return { value };
 }
+

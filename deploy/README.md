@@ -10,14 +10,31 @@ This folder contains the production-oriented Docker Compose deployment flow for 
 - `core-platform`
 - `api-gateway`
 - `admin-web`
-- `caddy` (public reverse proxy)
+- `xray` (VLESS + REALITY runtime)
+- `caddy` (public reverse proxy for panel/API)
 
-Only Caddy publishes public ports (`80`, `443`).
-Internal services stay on an internal Docker network.
+Public ports:
 
-## Quick install
+- `80/443` via Caddy
+- `RUNTIME_VLESS_PORT` (default `8443`) via Xray for client traffic
 
-From repository root on Ubuntu/Debian VPS:
+## One-click bootstrap
+
+Run directly on a clean VPS:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/opener-netdoor/opener-netdoor/main/install.sh) --ip-mode
+```
+
+Domain mode:
+
+```bash
+bash <(curl -fsSL https://raw.githubusercontent.com/opener-netdoor/opener-netdoor/main/install.sh) --domain panel.example.com --email ops@example.com
+```
+
+The bootstrap script installs prerequisites, clones to `/opt/opener-netdoor`, and runs `deploy/install.sh`.
+
+## Quick install from cloned repo
 
 ```bash
 bash deploy/install.sh --ip-mode
@@ -33,27 +50,28 @@ The installer will:
 
 1. Ensure Docker + Compose plugin are available.
 2. Create `deploy/.env` from `deploy/.env.example` (if missing).
-3. Generate strong secrets if placeholders are still present.
+3. Generate strong secrets and REALITY keypair if missing.
 4. Render `deploy/Caddyfile` for domain or IP mode.
 5. Start DB/infra containers.
 6. Run SQL migrations idempotently.
-7. Start app + proxy containers.
-8. Bootstrap a hidden owner scope and create a bootstrap owner token.
-9. Print panel URL, HTTPS status, token instructions, and service summary.
+7. Start control plane services.
+8. Bootstrap hidden owner scope and magic admin access URL.
+9. Bootstrap runtime node, generate/apply Xray config, and start Xray.
+10. Print panel URL, admin URL, HTTPS/runtime status, and service summary.
 
 ## Owner access
 
-After install, open:
+After install, open the **admin access URL** printed by installer:
 
-- `PANEL_URL/login`
+- `https://HOST/ADMIN_ACCESS_SECRET/OWNER_SCOPE_ID/`
 
-Use:
+This URL sets an HttpOnly session cookie and redirects to dashboard.
 
-- subject: value from `OWNER_SUBJECT` in `deploy/.env` (default `owner`)
-- hidden scope: value from `OWNER_SCOPE_ID` in `deploy/.env`
-- bootstrap token: printed once by installer and saved at `deploy/state/owner-bootstrap-token.txt`
+Also written to file:
 
-Treat the bootstrap token as sensitive.
+- `deploy/state/admin-access-url.txt`
+
+Treat it as sensitive.
 
 ## Upgrade
 
@@ -61,10 +79,10 @@ Treat the bootstrap token as sensitive.
 bash deploy/upgrade.sh
 ```
 
-Optional token rotation during upgrade:
+Rotate admin secret on upgrade:
 
 ```bash
-bash deploy/upgrade.sh --rotate-owner-token
+bash deploy/upgrade.sh --rotate-admin-secret
 ```
 
 ## Uninstall
@@ -87,4 +105,6 @@ bash deploy/uninstall.sh --purge-data --purge-state
 - `deploy/.env.example` - env template
 - `deploy/Caddyfile` - generated reverse-proxy config
 - `deploy/scripts/run-migrations.sh` - idempotent migration runner
-- `deploy/scripts/bootstrap-owner.sh` - hidden owner scope + bootstrap token flow
+- `deploy/scripts/bootstrap-owner.sh` - owner scope + admin magic URL flow
+- `deploy/scripts/bootstrap-runtime.sh` - node runtime config generation/apply
+- `deploy/scripts/generate-reality-keys.sh` - REALITY x25519 keypair generation

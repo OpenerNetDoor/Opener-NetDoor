@@ -13,12 +13,15 @@ import type {
   EffectivePolicy,
   HealthResponse,
   Node,
+  RuntimeApplyRequest,
+  RuntimeConfigResponse,
   NodeCertificate,
   NodeCertificateListResponse,
   NodeLifecycleRequest,
   NodeListResponse,
   NodeProvisioningContract,
   OpsSnapshot,
+  OpsAnalytics,
   PaginationQuery,
   PKIIssuer,
   PKIIssuerListResponse,
@@ -38,6 +41,7 @@ import type {
   UserListResponse,
   UserPolicyOverride,
   UserPolicyOverrideListResponse,
+  AdminSessionInfo,
 } from "@opener-netdoor/shared-types";
 
 export interface SDKClientConfig {
@@ -137,6 +141,14 @@ export class OpenerNetDoorClient {
 
   ready(): Promise<HealthResponse> {
     return this.request<HealthResponse>("GET", "/v1/ready");
+  }
+
+  authSession(): Promise<AdminSessionInfo> {
+    return this.request<AdminSessionInfo>("GET", "/v1/auth/session");
+  }
+
+  authLogout(): Promise<{ logged_out: boolean }> {
+    return this.request<{ logged_out: boolean }>("POST", "/v1/auth/logout");
   }
 
   listTenantsPage(params: ListTenantsParams = {}): Promise<TenantListResponse> {
@@ -310,6 +322,16 @@ export class OpenerNetDoorClient {
     });
   }
 
+  getNodeRuntimeConfig(nodeId: string, tenantId?: string): Promise<RuntimeConfigResponse> {
+    return this.request<RuntimeConfigResponse>("GET", "/v1/admin/nodes/runtime/config", {
+      tenant_id: tenantId ?? this.tenantId,
+      node_id: nodeId,
+    });
+  }
+
+  applyNodeRuntimeConfig(request: RuntimeApplyRequest): Promise<RuntimeConfigResponse> {
+    return this.request<RuntimeConfigResponse>("POST", "/v1/admin/nodes/runtime/apply", undefined, request);
+  }
   revokeNode(request: NodeLifecycleRequest): Promise<Node> {
     return this.request<Node>("POST", "/v1/admin/nodes/revoke", undefined, request);
   }
@@ -389,6 +411,12 @@ export class OpenerNetDoorClient {
     });
   }
 
+  opsAnalytics(tenantId?: string): Promise<OpsAnalytics> {
+    return this.request<OpsAnalytics>("GET", "/v1/admin/ops/analytics", {
+      tenant_id: tenantId ?? this.tenantId,
+    });
+  }
+
   private async request<T>(
     method: "GET" | "POST" | "PUT" | "DELETE",
     path: string,
@@ -414,6 +442,7 @@ export class OpenerNetDoorClient {
     const response = await fetch(url, {
       method,
       headers,
+      credentials: "include",
       body: body === undefined ? undefined : JSON.stringify(body),
     });
 
@@ -459,6 +488,14 @@ function normalizePolicyList(input: TenantPolicy | TenantPolicyListResponse): Te
 }
 
 export * from "./server_ops_adapter";
+
+
+
+
+
+
+
+
 
 
 

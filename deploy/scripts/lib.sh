@@ -107,6 +107,9 @@ configure_firewall_if_active() {
   if [[ "${HTTPS_ENABLED:-false}" == "true" ]]; then
     ufw allow 443/tcp >/dev/null 2>&1 || true
   fi
+  if [[ "${RUNTIME_ENABLED:-true}" == "true" ]]; then
+    ufw allow "${RUNTIME_VLESS_PORT:-8443}"/tcp >/dev/null 2>&1 || true
+  fi
 }
 
 print_compose_hint() {
@@ -115,6 +118,7 @@ Useful commands:
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml ps
   docker compose --env-file deploy/.env -f deploy/docker-compose.yml logs -f --tail=200
   bash deploy/upgrade.sh
+  bash deploy/upgrade.sh --rotate-admin-secret
   bash deploy/uninstall.sh
 EOF
 }

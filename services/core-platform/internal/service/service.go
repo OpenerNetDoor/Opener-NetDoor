@@ -52,6 +52,13 @@ type Options struct {
 	NodeCertDefaultTTL       time.Duration
 	NodeCertMaxTTL           time.Duration
 	NodeLegacyHMACFallback   bool
+	RuntimeEnabled           bool
+	RuntimePublicHost        string
+	RuntimeVLESSPort         int
+	RuntimeRealityPrivateKey string
+	RuntimeRealityPublicKey  string
+	RuntimeRealityShortID    string
+	RuntimeRealityServerName string
 }
 
 func (o Options) withDefaults() Options {
@@ -100,6 +107,21 @@ func (o Options) withDefaults() Options {
 	if o.NodeCertDefaultTTL > o.NodeCertMaxTTL {
 		o.NodeCertDefaultTTL = o.NodeCertMaxTTL
 	}
+	if strings.TrimSpace(o.RuntimePublicHost) == "" {
+		o.RuntimePublicHost = "127.0.0.1"
+	}
+	if o.RuntimeVLESSPort <= 0 {
+		o.RuntimeVLESSPort = 8443
+	}
+	if strings.TrimSpace(o.RuntimeRealityShortID) == "" {
+		o.RuntimeRealityShortID = "0123456789abcdef"
+	}
+	if strings.TrimSpace(o.RuntimeRealityServerName) == "" {
+		o.RuntimeRealityServerName = "www.cloudflare.com"
+	}
+	if strings.TrimSpace(o.RuntimeRealityPublicKey) != "" {
+		o.RuntimeEnabled = true
+	}
 	return o
 }
 
@@ -146,6 +168,7 @@ type Service interface {
 	GetNodeProvisioning(ctx context.Context, actor model.ActorPrincipal, q model.GetNodeProvisioningQuery) (model.NodeProvisioningContract, error)
 	ListAuditLogs(ctx context.Context, actor model.ActorPrincipal, q model.ListAuditLogsQuery) ([]model.AuditLogRecord, error)
 	GetOpsSnapshot(ctx context.Context, actor model.ActorPrincipal, tenantID string) (model.OpsSnapshot, error)
+	GetOpsAnalytics(ctx context.Context, actor model.ActorPrincipal, tenantID string) (model.OpsAnalytics, error)
 }
 
 type CoreService struct {
@@ -346,7 +369,11 @@ func (s *CoreService) ListAccessKeys(ctx context.Context, actor model.ActorPrinc
 	if err != nil {
 		return nil, &AppError{Status: 500, Code: "access_key_list_failed", Message: "failed to list access keys", Err: err}
 	}
-	return items, nil
+	enriched := make([]model.AccessKey, 0, len(items))
+	for _, item := range items {
+		enriched = append(enriched, s.enrichAccessKey(ctx, item))
+	}
+	return enriched, nil
 }
 
 func (s *CoreService) CreateAccessKey(ctx context.Context, actor model.ActorPrincipal, in model.CreateAccessKeyRequest) (model.AccessKey, error) {
@@ -376,9 +403,12 @@ func (s *CoreService) CreateAccessKey(ctx context.Context, actor model.ActorPrin
 		return model.AccessKey{}, err
 	}
 
-	if strings.TrimSpace(in.SecretRef) == "" {
-		in.SecretRef = "secret://generated/" + strconv.FormatInt(time.Now().UnixNano(), 10)
+	generatedSecretRef, genErr := maybeGenerateAccessSecretRef(in.KeyType, in.SecretRef)
+	if genErr != nil {
+		return model.AccessKey{}, &AppError{Status: 500, Code: "access_key_create_failed", Message: "failed to generate access key secret", Err: genErr}
 	}
+	in.SecretRef = generatedSecretRef
+
 	if in.ExpiresAt == nil && effective.KeyTTLSeconds != nil {
 		ttl := *effective.KeyTTLSeconds
 		expiresAt := time.Now().UTC().Add(time.Duration(ttl) * time.Second)
@@ -389,6 +419,7 @@ func (s *CoreService) CreateAccessKey(ctx context.Context, actor model.ActorPrin
 	if err != nil {
 		return model.AccessKey{}, mapStoreError("access_key_create_failed", err)
 	}
+	item = s.enrichAccessKey(ctx, item)
 	if err := s.store.InsertAuditLog(ctx, model.AuditLogEvent{
 		TenantID:   item.TenantID,
 		ActorType:  "admin",
@@ -397,8 +428,9 @@ func (s *CoreService) CreateAccessKey(ctx context.Context, actor model.ActorPrin
 		TargetType: "access_key",
 		TargetID:   item.ID,
 		Metadata: map[string]any{
-			"user_id":  item.UserID,
-			"key_type": item.KeyType,
+			"user_id":        item.UserID,
+			"key_type":       item.KeyType,
+			"has_connection": item.ConnectionURI != "",
 		},
 		OccurredAt: time.Now().UTC(),
 	}); err != nil {
@@ -428,6 +460,7 @@ func (s *CoreService) RevokeAccessKey(ctx context.Context, actor model.ActorPrin
 		}
 		return model.AccessKey{}, mapStoreError("access_key_revoke_failed", err)
 	}
+	item = s.enrichAccessKey(ctx, item)
 	if err := s.store.InsertAuditLog(ctx, model.AuditLogEvent{
 		TenantID:   item.TenantID,
 		ActorType:  "admin",
@@ -436,8 +469,9 @@ func (s *CoreService) RevokeAccessKey(ctx context.Context, actor model.ActorPrin
 		TargetType: "access_key",
 		TargetID:   item.ID,
 		Metadata: map[string]any{
-			"user_id":  item.UserID,
-			"key_type": item.KeyType,
+			"user_id":        item.UserID,
+			"key_type":       item.KeyType,
+			"has_connection": item.ConnectionURI != "",
 		},
 		OccurredAt: time.Now().UTC(),
 	}); err != nil {

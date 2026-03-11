@@ -22,6 +22,11 @@ type nodeOwnerService interface {
 	GetNode(ctx context.Context, actor model.ActorPrincipal, tenantID string, nodeID string) (model.Node, error)
 }
 
+type runtimeOwnerService interface {
+	GetNodeRuntimeConfig(ctx context.Context, actor model.ActorPrincipal, tenantID string, nodeID string) (model.RuntimeConfigResponse, error)
+	ApplyNodeRuntimeConfig(ctx context.Context, actor model.ActorPrincipal, in model.RuntimeApplyRequest) (model.RuntimeConfigResponse, error)
+}
+
 func New(svc service.Service) *Handler {
 	return &Handler{svc: svc}
 }
@@ -188,6 +193,50 @@ func (h *Handler) NodeDetail(w http.ResponseWriter, r *http.Request) {
 	response.JSON(w, http.StatusOK, item)
 }
 
+func (h *Handler) NodeRuntimeConfig(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	runtimeSvc, ok := h.svc.(runtimeOwnerService)
+	if !ok {
+		response.Error(w, r, http.StatusNotImplemented, "not_implemented", "node runtime is not supported by configured service")
+		return
+	}
+	item, err := runtimeSvc.GetNodeRuntimeConfig(r.Context(), actor, r.URL.Query().Get("tenant_id"), r.URL.Query().Get("node_id"))
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_runtime_config_failed", "failed to generate node runtime config")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) NodeRuntimeApply(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodPost {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	runtimeSvc, ok := h.svc.(runtimeOwnerService)
+	if !ok {
+		response.Error(w, r, http.StatusNotImplemented, "not_implemented", "node runtime is not supported by configured service")
+		return
+	}
+	var req model.RuntimeApplyRequest
+	if err := json.NewDecoder(r.Body).Decode(&req); err != nil {
+		response.Error(w, r, http.StatusBadRequest, "invalid_json", "invalid request body")
+		return
+	}
+	item, err := runtimeSvc.ApplyNodeRuntimeConfig(r.Context(), actor, req)
+	if err != nil {
+		status, code, message := service.ToResponse(err, "node_runtime_apply_failed", "failed to apply node runtime config")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
 func (h *Handler) NodeRegister(w http.ResponseWriter, r *http.Request) {
 	if r.Method != http.MethodPost {
 		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
@@ -487,6 +536,21 @@ func (h *Handler) OpsSnapshot(w http.ResponseWriter, r *http.Request) {
 	item, err := h.svc.GetOpsSnapshot(r.Context(), actor, r.URL.Query().Get("tenant_id"))
 	if err != nil {
 		status, code, message := service.ToResponse(err, "ops_snapshot_failed", "failed to load operations snapshot")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
+
+func (h *Handler) OpsAnalytics(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	item, err := h.svc.GetOpsAnalytics(r.Context(), actor, r.URL.Query().Get("tenant_id"))
+	if err != nil {
+		status, code, message := service.ToResponse(err, "ops_analytics_failed", "failed to load operations analytics")
 		response.Error(w, r, status, code, message)
 		return
 	}

@@ -42,6 +42,8 @@ func NewHandlerWithService(svc service.Service) http.Handler {
 	mux.HandleFunc("/internal/v1/nodes/heartbeat", h.NodeHeartbeat)
 	mux.HandleFunc("/internal/v1/nodes/revoke", h.NodeRevoke)
 	mux.HandleFunc("/internal/v1/nodes/reactivate", h.NodeReactivate)
+	mux.HandleFunc("/internal/v1/nodes/runtime/config", h.NodeRuntimeConfig)
+	mux.HandleFunc("/internal/v1/nodes/runtime/apply", h.NodeRuntimeApply)
 	mux.HandleFunc("/internal/v1/nodes/certificates", h.NodeCertificates)
 	mux.HandleFunc("/internal/v1/nodes/certificates/rotate", h.NodeCertificatesRotate)
 	mux.HandleFunc("/internal/v1/nodes/certificates/revoke", h.NodeCertificatesRevoke)
@@ -50,6 +52,7 @@ func NewHandlerWithService(svc service.Service) http.Handler {
 	mux.HandleFunc("/internal/v1/pki/issuers/activate", h.PKIIssuersActivate)
 	mux.HandleFunc("/internal/v1/audit/logs", h.AuditLogs)
 	mux.HandleFunc("/internal/v1/ops/snapshot", h.OpsSnapshot)
+	mux.HandleFunc("/internal/v1/ops/analytics", h.OpsAnalytics)
 	mux.HandleFunc("/internal/v1/nodes/provisioning", h.NodeProvisioning)
 	return middleware.RequestID(mux)
 }

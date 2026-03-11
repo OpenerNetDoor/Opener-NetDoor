@@ -112,14 +112,15 @@ type User struct {
 }
 
 type AccessKey struct {
-	ID        string     `json:"id"`
-	TenantID  string     `json:"tenant_id"`
-	UserID    string     `json:"user_id"`
-	KeyType   string     `json:"key_type"`
-	SecretRef string     `json:"secret_ref"`
-	Status    string     `json:"status"`
-	ExpiresAt *time.Time `json:"expires_at,omitempty"`
-	CreatedAt time.Time  `json:"created_at"`
+	ID            string     `json:"id"`
+	TenantID      string     `json:"tenant_id"`
+	UserID        string     `json:"user_id"`
+	KeyType       string     `json:"key_type"`
+	SecretRef     string     `json:"secret_ref"`
+	ConnectionURI string     `json:"connection_uri,omitempty"`
+	Status        string     `json:"status"`
+	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
+	CreatedAt     time.Time  `json:"created_at"`
 }
 
 type Device struct {
@@ -149,6 +150,46 @@ type Node struct {
 	CreatedAt           time.Time  `json:"created_at"`
 }
 
+
+type NodeRuntime struct {
+	NodeID               string     `json:"node_id"`
+	TenantID             string     `json:"tenant_id"`
+	RuntimeBackend       string     `json:"runtime_backend"`
+	RuntimeProtocol      string     `json:"runtime_protocol"`
+	ListenPort           int        `json:"listen_port"`
+	RealityPublicKey     string     `json:"reality_public_key"`
+	RealityShortID       string     `json:"reality_short_id"`
+	RealityServerName    string     `json:"reality_server_name"`
+	AppliedConfigVersion int        `json:"applied_config_version"`
+	RuntimeStatus        string     `json:"runtime_status"`
+	LastAppliedAt        *time.Time `json:"last_applied_at,omitempty"`
+	LastError            string     `json:"last_error,omitempty"`
+	CreatedAt            time.Time  `json:"created_at"`
+	UpdatedAt            time.Time  `json:"updated_at"`
+}
+
+type RuntimeRevision struct {
+	ID         int64      `json:"id"`
+	NodeID     string     `json:"node_id"`
+	TenantID   string     `json:"tenant_id"`
+	Version    int        `json:"version"`
+	ConfigJSON string     `json:"config_json"`
+	Applied    bool       `json:"applied"`
+	AppliedAt  *time.Time `json:"applied_at,omitempty"`
+	CreatedAt  time.Time  `json:"created_at"`
+}
+
+type RuntimeApplyRequest struct {
+	TenantID string `json:"tenant_id"`
+	NodeID   string `json:"node_id"`
+}
+
+type RuntimeConfigResponse struct {
+	Node       Node            `json:"node"`
+	Runtime    NodeRuntime     `json:"runtime"`
+	Revision   RuntimeRevision `json:"revision"`
+	ConfigJSON string          `json:"config_json"`
+}
 type NodeTLSIdentity struct {
 	SerialNumber string `json:"serial_number"`
 	CertPEM      string `json:"cert_pem,omitempty"`
@@ -216,6 +257,46 @@ type OpsSnapshot struct {
 	TrafficBytes24h      int64                `json:"traffic_bytes_24h"`
 	ReplayRejected24h    int                  `json:"replay_rejected_24h"`
 	InvalidSignature24h  int                  `json:"invalid_signature_24h"`
+}
+
+type OpsTrafficPoint struct {
+	TsHour     time.Time `json:"ts_hour"`
+	BytesIn    int64     `json:"bytes_in"`
+	BytesOut   int64     `json:"bytes_out"`
+	BytesTotal int64     `json:"bytes_total"`
+}
+
+type OpsUserGrowthPoint struct {
+	Day        string `json:"day"`
+	NewUsers   int    `json:"new_users"`
+	TotalUsers int    `json:"total_users"`
+}
+
+type OpsProtocolUsagePoint struct {
+	Protocol   string `json:"protocol"`
+	BytesTotal int64  `json:"bytes_total"`
+}
+
+type OpsTopServerPoint struct {
+	NodeID      string `json:"node_id"`
+	Hostname    string `json:"hostname"`
+	Region      string `json:"region"`
+	BytesTotal  int64  `json:"bytes_total"`
+	LoadPercent int    `json:"load_percent"`
+}
+
+type OpsAnalytics struct {
+	TenantID         string                  `json:"tenant_id,omitempty"`
+	GeneratedAt      time.Time               `json:"generated_at"`
+	TotalUsers       int                     `json:"total_users"`
+	ActiveUsers      int                     `json:"active_users"`
+	ActiveKeys       int                     `json:"active_keys"`
+	OnlineServers    int                     `json:"online_servers"`
+	TrafficBytes24h  int64                   `json:"traffic_bytes_24h"`
+	TrafficHistory7d []OpsTrafficPoint       `json:"traffic_history_7d"`
+	UserGrowth7d     []OpsUserGrowthPoint    `json:"user_growth_7d"`
+	ProtocolUsage24h []OpsProtocolUsagePoint `json:"protocol_usage_24h"`
+	TopServersByLoad []OpsTopServerPoint     `json:"top_servers_by_load"`
 }
 
 type NodeRegistrationResult struct {
@@ -438,3 +519,6 @@ type AuditLogEvent struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	OccurredAt time.Time      `json:"occurred_at,omitempty"`
 }
+
+
+

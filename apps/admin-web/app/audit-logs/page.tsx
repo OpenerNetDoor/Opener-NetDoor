@@ -16,7 +16,7 @@ import {
 } from "../../components/ui";
 import { useAPIClient, useAdminSession } from "../../lib/api/client";
 import { toAuditEventVMs } from "../../lib/adapters/audit";
-import { buildHeaderNotifications, type NotificationView } from "../../lib/mock/notifications";
+import type { NotificationView } from "../../lib/adapters/notifications";
 
 export default function AuditLogsPage() {
   const api = useAPIClient();
@@ -58,18 +58,17 @@ export default function AuditLogsPage() {
     load();
   }, [limit, offset]);
 
-  const feed: NotificationView[] = useMemo(() => {
-    if (items.length > 0) {
-      return items.slice(0, 8).map((item) => ({
+  const feed: NotificationView[] = useMemo(
+    () =>
+      items.slice(0, 8).map((item) => ({
         id: item.id,
         title: item.action,
         subtitle: `${item.actor} -> ${item.target}`,
         when: item.relative,
         tone: item.action.includes("revoke") || item.action.includes("reject") ? ("danger" as const) : ("neutral" as const),
-      }));
-    }
-    return buildHeaderNotifications("/audit-logs");
-  }, [items]);
+      })),
+    [items],
+  );
 
   return (
     <RouteGuard requiredScopes={["admin:read"]} expectedTenantId={tenantId || undefined}>

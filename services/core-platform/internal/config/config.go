@@ -9,42 +9,56 @@ import (
 )
 
 type Config struct {
-	HTTPAddr                string
-	DatabaseURL             string
-	RedisAddr               string
-	NATSURL                 string
-	NodeSigningSecret       string
-	NodeContractVersion     string
-	NodePKIMode             string
-	NodeCAMode              string
-	NodeCAActiveIssuerID    string
-	NodeCAPreviousIssuerIDs []string
-	NodeCACertPath          string
-	NodeCAKeyPath           string
-	NodeCertRenewBefore     time.Duration
-	NodeCertDefaultTTL      time.Duration
-	NodeCertMaxTTL          time.Duration
-	NodeLegacyHMACFallback  bool
+	HTTPAddr                 string
+	DatabaseURL              string
+	RedisAddr                string
+	NATSURL                  string
+	NodeSigningSecret        string
+	NodeContractVersion      string
+	NodePKIMode              string
+	NodeCAMode               string
+	NodeCAActiveIssuerID     string
+	NodeCAPreviousIssuerIDs  []string
+	NodeCACertPath           string
+	NodeCAKeyPath            string
+	NodeCertRenewBefore      time.Duration
+	NodeCertDefaultTTL       time.Duration
+	NodeCertMaxTTL           time.Duration
+	NodeLegacyHMACFallback   bool
+	RuntimeEnabled           bool
+	RuntimePublicHost        string
+	RuntimeVLESSPort         int
+	RuntimeRealityPrivateKey string
+	RuntimeRealityPublicKey  string
+	RuntimeRealityShortID    string
+	RuntimeRealityServerName string
 }
 
 func Load() Config {
 	return Config{
-		HTTPAddr:                getenv("HTTP_ADDR", ":8081"),
-		DatabaseURL:             getenv("DATABASE_URL", "postgresql://openernetdoor:openernetdoor@127.0.0.1:5432/openernetdoor?sslmode=disable"),
-		RedisAddr:               getenv("REDIS_ADDR", "127.0.0.1:6379"),
-		NATSURL:                 getenv("NATS_URL", "nats://127.0.0.1:4222"),
-		NodeSigningSecret:       getenv("NODE_SIGNING_SECRET", "opener-netdoor-stage5-dev-signing-secret"),
-		NodeContractVersion:     getenv("NODE_CONTRACT_VERSION", "2026-03-10.stage5.v1"),
-		NodePKIMode:             strings.ToLower(getenv("NODE_PKI_MODE", "strict")),
-		NodeCAMode:              strings.ToLower(getenv("NODE_CA_MODE", "file")),
-		NodeCAActiveIssuerID:    strings.TrimSpace(getenv("NODE_CA_ACTIVE_ISSUER_ID", "default-file-issuer")),
-		NodeCAPreviousIssuerIDs: parseCSV(getenv("NODE_CA_PREVIOUS_ISSUER_IDS", "")),
-		NodeCACertPath:          strings.TrimSpace(getenv("NODE_CA_CERT_PATH", "")),
-		NodeCAKeyPath:           strings.TrimSpace(getenv("NODE_CA_KEY_PATH", "")),
-		NodeCertRenewBefore:     parseDuration(getenv("NODE_CERT_RENEW_BEFORE", "168h"), 168*time.Hour),
-		NodeCertDefaultTTL:      parseDuration(getenv("NODE_CERT_DEFAULT_TTL", "720h"), 720*time.Hour),
-		NodeCertMaxTTL:          parseDuration(getenv("NODE_CERT_MAX_TTL", "720h"), 720*time.Hour),
-		NodeLegacyHMACFallback:  parseBool(getenv("NODE_LEGACY_HMAC_FALLBACK", "false"), false),
+		HTTPAddr:                 getenv("HTTP_ADDR", ":8081"),
+		DatabaseURL:              getenv("DATABASE_URL", "postgresql://openernetdoor:openernetdoor@127.0.0.1:5432/openernetdoor?sslmode=disable"),
+		RedisAddr:                getenv("REDIS_ADDR", "127.0.0.1:6379"),
+		NATSURL:                  getenv("NATS_URL", "nats://127.0.0.1:4222"),
+		NodeSigningSecret:        getenv("NODE_SIGNING_SECRET", "opener-netdoor-stage5-dev-signing-secret"),
+		NodeContractVersion:      getenv("NODE_CONTRACT_VERSION", "2026-03-10.stage5.v1"),
+		NodePKIMode:              strings.ToLower(getenv("NODE_PKI_MODE", "strict")),
+		NodeCAMode:               strings.ToLower(getenv("NODE_CA_MODE", "file")),
+		NodeCAActiveIssuerID:     strings.TrimSpace(getenv("NODE_CA_ACTIVE_ISSUER_ID", "default-file-issuer")),
+		NodeCAPreviousIssuerIDs:  parseCSV(getenv("NODE_CA_PREVIOUS_ISSUER_IDS", "")),
+		NodeCACertPath:           strings.TrimSpace(getenv("NODE_CA_CERT_PATH", "")),
+		NodeCAKeyPath:            strings.TrimSpace(getenv("NODE_CA_KEY_PATH", "")),
+		NodeCertRenewBefore:      parseDuration(getenv("NODE_CERT_RENEW_BEFORE", "168h"), 168*time.Hour),
+		NodeCertDefaultTTL:       parseDuration(getenv("NODE_CERT_DEFAULT_TTL", "720h"), 720*time.Hour),
+		NodeCertMaxTTL:           parseDuration(getenv("NODE_CERT_MAX_TTL", "720h"), 720*time.Hour),
+		NodeLegacyHMACFallback:   parseBool(getenv("NODE_LEGACY_HMAC_FALLBACK", "false"), false),
+		RuntimeEnabled:           parseBool(getenv("RUNTIME_ENABLED", "false"), false),
+		RuntimePublicHost:        strings.TrimSpace(getenv("RUNTIME_PUBLIC_HOST", getenv("PUBLIC_HOST", "127.0.0.1"))),
+		RuntimeVLESSPort:         parseInt(getenv("RUNTIME_VLESS_PORT", "8443"), 8443),
+		RuntimeRealityPrivateKey: strings.TrimSpace(getenv("RUNTIME_REALITY_PRIVATE_KEY", "")),
+		RuntimeRealityPublicKey:  strings.TrimSpace(getenv("RUNTIME_REALITY_PUBLIC_KEY", "")),
+		RuntimeRealityShortID:    strings.TrimSpace(getenv("RUNTIME_REALITY_SHORT_ID", "0123456789abcdef")),
+		RuntimeRealityServerName: strings.TrimSpace(getenv("RUNTIME_REALITY_SERVER_NAME", "www.cloudflare.com")),
 	}
 }
 
@@ -93,6 +107,26 @@ func (c Config) Validate() error {
 			return errors.New("NODE_CA_CERT_PATH and NODE_CA_KEY_PATH must be both set or both empty")
 		}
 	}
+	if c.RuntimeEnabled {
+		if strings.TrimSpace(c.RuntimePublicHost) == "" {
+			return errors.New("RUNTIME_PUBLIC_HOST is required when runtime is enabled")
+		}
+		if c.RuntimeVLESSPort <= 0 || c.RuntimeVLESSPort > 65535 {
+			return errors.New("RUNTIME_VLESS_PORT must be in range 1..65535")
+		}
+		if strings.TrimSpace(c.RuntimeRealityPrivateKey) == "" {
+			return errors.New("RUNTIME_REALITY_PRIVATE_KEY is required when runtime is enabled")
+		}
+		if strings.TrimSpace(c.RuntimeRealityPublicKey) == "" {
+			return errors.New("RUNTIME_REALITY_PUBLIC_KEY is required when runtime is enabled")
+		}
+		if strings.TrimSpace(c.RuntimeRealityShortID) == "" {
+			return errors.New("RUNTIME_REALITY_SHORT_ID is required when runtime is enabled")
+		}
+		if strings.TrimSpace(c.RuntimeRealityServerName) == "" {
+			return errors.New("RUNTIME_REALITY_SERVER_NAME is required when runtime is enabled")
+		}
+	}
 	return nil
 }
 
@@ -121,6 +155,18 @@ func parseBool(raw string, fallback bool) bool {
 		return fallback
 	}
 	v, err := strconv.ParseBool(raw)
+	if err != nil {
+		return fallback
+	}
+	return v
+}
+
+func parseInt(raw string, fallback int) int {
+	raw = strings.TrimSpace(raw)
+	if raw == "" {
+		return fallback
+	}
+	v, err := strconv.Atoi(raw)
 	if err != nil {
 		return fallback
 	}

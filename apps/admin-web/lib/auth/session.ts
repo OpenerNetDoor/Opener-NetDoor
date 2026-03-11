@@ -7,14 +7,26 @@ const THEME_KEY = "opener-netdoor-admin-theme";
 const DEFAULT_SCOPE_KEY = "opener-netdoor-admin-default-scope";
 const DEFAULT_SCOPE_FALLBACK = process.env.NEXT_PUBLIC_DEFAULT_SCOPE_ID ?? "default";
 const SINGLE_OWNER_MODE = (process.env.NEXT_PUBLIC_SINGLE_OWNER_MODE ?? "true") !== "false";
+const DEFAULT_BASE_URL = process.env.NEXT_PUBLIC_API_BASE_URL ?? "";
 
 export interface AdminSession {
   subject: string;
-  token: string;
   tenantId?: string;
   scopes: Scope[];
   baseUrl: string;
+  expiresAt?: string;
   theme?: ThemeMode;
+}
+
+function normalizeBaseUrl(baseUrl?: string): string {
+  const source = (baseUrl ?? DEFAULT_BASE_URL ?? "").trim().replace(/\/+$/, "");
+  if (!source) {
+    return window.location.origin;
+  }
+  if (!source.startsWith("http://") && !source.startsWith("https://")) {
+    return `http://${source}`;
+  }
+  return source;
 }
 
 export function getSession(): AdminSession | null {
@@ -30,7 +42,9 @@ export function getSession(): AdminSession | null {
     const effectiveScope = parsed.tenantId?.trim() || resolveDefaultScopeId();
     return {
       ...parsed,
+      baseUrl: normalizeBaseUrl(parsed.baseUrl),
       tenantId: effectiveScope,
+      scopes: Array.from(new Set((parsed.scopes ?? []).filter(Boolean))),
     };
   } catch {
     return null;
@@ -45,13 +59,70 @@ export function setSession(session: AdminSession): void {
     SESSION_KEY,
     JSON.stringify({
       ...session,
-      baseUrl: session.baseUrl.trim().replace(/\/+$/, ""),
+      baseUrl: normalizeBaseUrl(session.baseUrl),
       tenantId: session.tenantId?.trim() || resolveDefaultScopeId(),
       subject: session.subject.trim(),
-      token: session.token.trim(),
       scopes: Array.from(new Set(session.scopes)),
     }),
   );
+}
+
+export async function hydrateSession(baseUrl?: string): Promise<AdminSession | null> {
+  if (typeof window === "undefined") {
+    return null;
+  }
+
+  const targetBaseURL = normalizeBaseUrl(baseUrl);
+  const response = await fetch(`${targetBaseURL}/v1/auth/session`, {
+    method: "GET",
+    credentials: "include",
+    headers: {
+      Accept: "application/json",
+    },
+  });
+
+  if (!response.ok) {
+    clearSession();
+    return null;
+  }
+
+  const data = (await response.json()) as {
+    authenticated: boolean;
+    subject: string;
+    tenant_id: string;
+    scopes: Scope[];
+    expires_at: string;
+  };
+
+  if (!data.authenticated) {
+    clearSession();
+    return null;
+  }
+
+  const next: AdminSession = {
+    subject: data.subject,
+    tenantId: data.tenant_id,
+    scopes: data.scopes ?? [],
+    baseUrl: targetBaseURL,
+    expiresAt: data.expires_at,
+  };
+  setSession(next);
+  return next;
+}
+
+export async function logoutSession(baseUrl?: string): Promise<void> {
+  const targetBaseURL = normalizeBaseUrl(baseUrl);
+  try {
+    await fetch(`${targetBaseURL}/v1/auth/logout`, {
+      method: "POST",
+      credentials: "include",
+      headers: {
+        Accept: "application/json",
+      },
+    });
+  } finally {
+    clearSession();
+  }
 }
 
 export function clearSession(): void {

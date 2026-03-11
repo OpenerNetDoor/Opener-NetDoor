@@ -57,12 +57,3 @@ export function pct(value: number, max = 100): number {
   }
   return Math.max(0, Math.min(100, (value / max) * 100));
 }
-
-export function hashToPercent(seed: string): number {
-  let hash = 0;
-  for (let i = 0; i < seed.length; i += 1) {
-    hash = (hash << 5) - hash + seed.charCodeAt(i);
-    hash |= 0;
-  }
-  return Math.abs(hash % 100);
-}

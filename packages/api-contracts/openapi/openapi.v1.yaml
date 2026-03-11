@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Opener NetDoor Public and Admin API
-  version: 1.9.0
+  version: 1.11.0
 servers:
   - url: https://api.example.com
 paths:
@@ -33,6 +33,34 @@ paths:
                   status:
                     type: string
                     example: ready
+  /v1/auth/session:
+    get:
+      summary: Resolve current admin cookie session
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Session state
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/AdminSessionInfo'
+  /v1/auth/logout:
+    post:
+      summary: Invalidate admin session cookie
+      security:
+        - bearerAuth: []
+      responses:
+        '200':
+          description: Logout result
+          content:
+            application/json:
+              schema:
+                type: object
+                required: [logged_out]
+                properties:
+                  logged_out:
+                    type: boolean
   /v1/admin/tenants:
     get:
       summary: List tenants
@@ -472,6 +500,49 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/Node'
+  /v1/admin/nodes/runtime/config:
+    get:
+      summary: Generate deterministic Xray runtime config for node
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: node_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Runtime config revision
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeConfigResponse'
+  /v1/admin/nodes/runtime/apply:
+    post:
+      summary: Mark latest generated runtime config as applied
+      security:
+        - bearerAuth: [admin:write]
+      requestBody:
+        required: true
+        content:
+          application/json:
+            schema:
+              $ref: '#/components/schemas/RuntimeApplyRequest'
+      responses:
+        '200':
+          description: Runtime config applied
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/RuntimeConfigResponse'
   /v1/admin/nodes/register:
     post:
       summary: Register node with signed identity
@@ -536,6 +607,42 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/NodeProvisioningContract'
+  /v1/admin/ops/snapshot:
+    get:
+      summary: Get operations snapshot for tenant
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Operations snapshot
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsSnapshot'
+  /v1/admin/ops/analytics:
+    get:
+      summary: Get operations analytics aggregates for tenant
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          schema:
+            type: string
+            format: uuid
+      responses:
+        '200':
+          description: Operations analytics
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/OpsAnalytics'
 components:
   securitySchemes:
     bearerAuth:
@@ -1057,3 +1164,240 @@ components:
           $ref: '#/components/schemas/Node'
         provisioning:
           $ref: '#/components/schemas/NodeProvisioningContract'
+
+    OpsNodeStatusCount:
+      type: object
+      required: [status, count]
+      properties:
+        status:
+          type: string
+        count:
+          type: integer
+    OpsSnapshot:
+      type: object
+      required: [generated_at, node_status, active_certificates, expiring_certificates_24h, traffic_bytes_24h, replay_rejected_24h, invalid_signature_24h]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        generated_at:
+          type: string
+          format: date-time
+        node_status:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsNodeStatusCount'
+        active_certificates:
+          type: integer
+        expiring_certificates_24h:
+          type: integer
+        traffic_bytes_24h:
+          type: integer
+          format: int64
+        replay_rejected_24h:
+          type: integer
+        invalid_signature_24h:
+          type: integer
+    OpsTrafficPoint:
+      type: object
+      required: [ts_hour, bytes_in, bytes_out, bytes_total]
+      properties:
+        ts_hour:
+          type: string
+          format: date-time
+        bytes_in:
+          type: integer
+          format: int64
+        bytes_out:
+          type: integer
+          format: int64
+        bytes_total:
+          type: integer
+          format: int64
+    OpsUserGrowthPoint:
+      type: object
+      required: [day, new_users, total_users]
+      properties:
+        day:
+          type: string
+          pattern: '^\\d{4}-\\d{2}-\\d{2}$'
+        new_users:
+          type: integer
+        total_users:
+          type: integer
+    OpsProtocolUsagePoint:
+      type: object
+      required: [protocol, bytes_total]
+      properties:
+        protocol:
+          type: string
+        bytes_total:
+          type: integer
+          format: int64
+    OpsTopServerPoint:
+      type: object
+      required: [node_id, hostname, region, bytes_total, load_percent]
+      properties:
+        node_id:
+          type: string
+          format: uuid
+        hostname:
+          type: string
+        region:
+          type: string
+        bytes_total:
+          type: integer
+          format: int64
+        load_percent:
+          type: integer
+          minimum: 0
+          maximum: 100
+    OpsAnalytics:
+      type: object
+      required: [generated_at, total_users, active_users, active_keys, online_servers, traffic_bytes_24h, traffic_history_7d, user_growth_7d, protocol_usage_24h, top_servers_by_load]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        generated_at:
+          type: string
+          format: date-time
+        total_users:
+          type: integer
+        active_users:
+          type: integer
+        active_keys:
+          type: integer
+        online_servers:
+          type: integer
+        traffic_bytes_24h:
+          type: integer
+          format: int64
+        traffic_history_7d:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsTrafficPoint'
+        user_growth_7d:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsUserGrowthPoint'
+        protocol_usage_24h:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsProtocolUsagePoint'
+        top_servers_by_load:
+          type: array
+          items:
+            $ref: '#/components/schemas/OpsTopServerPoint'
+
+
+
+
+
+
+    AdminSessionInfo:
+      type: object
+      required: [authenticated, subject, scopes, expires_at]
+      properties:
+        authenticated:
+          type: boolean
+        subject:
+          type: string
+        tenant_id:
+          type: string
+          format: uuid
+        scopes:
+          type: array
+          items:
+            type: string
+        expires_at:
+          type: string
+          format: date-time
+    NodeRuntime:
+      type: object
+      required: [node_id, tenant_id, runtime_backend, runtime_protocol, listen_port, reality_public_key, reality_short_id, reality_server_name, applied_config_version, runtime_status, created_at, updated_at]
+      properties:
+        node_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        runtime_backend:
+          type: string
+        runtime_protocol:
+          type: string
+        listen_port:
+          type: integer
+          minimum: 1
+          maximum: 65535
+        reality_public_key:
+          type: string
+        reality_short_id:
+          type: string
+        reality_server_name:
+          type: string
+        applied_config_version:
+          type: integer
+        runtime_status:
+          type: string
+        last_applied_at:
+          type: string
+          format: date-time
+          nullable: true
+        last_error:
+          type: string
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+        updated_at:
+          type: string
+          format: date-time
+    RuntimeRevision:
+      type: object
+      required: [id, node_id, tenant_id, version, config_json, applied, created_at]
+      properties:
+        id:
+          type: integer
+        node_id:
+          type: string
+          format: uuid
+        tenant_id:
+          type: string
+          format: uuid
+        version:
+          type: integer
+        config_json:
+          type: string
+        applied:
+          type: boolean
+        applied_at:
+          type: string
+          format: date-time
+          nullable: true
+        created_at:
+          type: string
+          format: date-time
+    RuntimeConfigResponse:
+      type: object
+      required: [node, runtime, revision, config_json]
+      properties:
+        node:
+          $ref: '#/components/schemas/Node'
+        runtime:
+          $ref: '#/components/schemas/NodeRuntime'
+        revision:
+          $ref: '#/components/schemas/RuntimeRevision'
+        config_json:
+          type: string
+    RuntimeApplyRequest:
+      type: object
+      required: [tenant_id, node_id]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        node_id:
+          type: string
+          format: uuid

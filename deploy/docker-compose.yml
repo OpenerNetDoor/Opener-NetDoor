@@ -70,6 +70,15 @@ services:
       NODE_CERT_DEFAULT_TTL: ${NODE_CERT_DEFAULT_TTL}
       NODE_CERT_MAX_TTL: ${NODE_CERT_MAX_TTL}
       NODE_LEGACY_HMAC_FALLBACK: ${NODE_LEGACY_HMAC_FALLBACK}
+      RUNTIME_ENABLED: ${RUNTIME_ENABLED}
+      RUNTIME_PUBLIC_HOST: ${RUNTIME_PUBLIC_HOST}
+      RUNTIME_VLESS_PORT: ${RUNTIME_VLESS_PORT}
+      RUNTIME_REALITY_PRIVATE_KEY: ${RUNTIME_REALITY_PRIVATE_KEY}
+      RUNTIME_REALITY_PUBLIC_KEY: ${RUNTIME_REALITY_PUBLIC_KEY}
+      RUNTIME_REALITY_SHORT_ID: ${RUNTIME_REALITY_SHORT_ID}
+      RUNTIME_REALITY_SERVER_NAME: ${RUNTIME_REALITY_SERVER_NAME}
+    ports:
+      - "127.0.0.1:8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
@@ -93,6 +102,13 @@ services:
       JWT_ISSUER: ${JWT_ISSUER}
       JWT_AUDIENCE: ${JWT_AUDIENCE}
       JWT_SECRET: ${JWT_SECRET}
+      SESSION_COOKIE_NAME: ${SESSION_COOKIE_NAME}
+      SESSION_TTL: ${SESSION_TTL}
+      SESSION_SECRET: ${SESSION_SECRET}
+      SESSION_SECURE: ${SESSION_SECURE}
+      ADMIN_ACCESS_SECRET: ${ADMIN_ACCESS_SECRET}
+      OWNER_SCOPE_ID: ${OWNER_SCOPE_ID}
+      OWNER_SUBJECT: ${OWNER_SUBJECT}
     depends_on:
       core-platform:
         condition: service_started
@@ -115,6 +131,20 @@ services:
       NEXT_PUBLIC_SINGLE_OWNER_MODE: "true"
     depends_on:
       api-gateway:
+        condition: service_started
+    networks:
+      - backend
+
+  xray:
+    image: ${XRAY_IMAGE}
+    restart: unless-stopped
+    command: ["run", "-c", "/etc/xray/config.json"]
+    volumes:
+      - ./state/xray/config.json:/etc/xray/config.json:ro
+    ports:
+      - "${RUNTIME_VLESS_PORT:-8443}:${RUNTIME_VLESS_PORT:-8443}/tcp"
+    depends_on:
+      core-platform:
         condition: service_started
     networks:
       - backend

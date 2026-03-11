@@ -5,16 +5,16 @@ SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./lib.sh
 source "${SCRIPT_DIR}/lib.sh"
 
-ROTATE_TOKEN="false"
-PRINT_TOKEN="false"
+ROTATE_SECRET="false"
+PRINT_URL="false"
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
-    --rotate-token)
-      ROTATE_TOKEN="true"
+    --rotate-secret)
+      ROTATE_SECRET="true"
       ;;
-    --print-token)
-      PRINT_TOKEN="true"
+    --print-url)
+      PRINT_URL="true"
       ;;
     *)
       die "unknown argument: $1"
@@ -23,7 +23,6 @@ while [[ $# -gt 0 ]]; do
   shift
 done
 
-require_cmd openssl
 require_cmd docker
 
 ensure_env_file
@@ -45,9 +44,13 @@ if [[ -z "${OWNER_EMAIL:-}" ]]; then
   OWNER_EMAIL="owner@example.com"
   upsert_env "OWNER_EMAIL" "${OWNER_EMAIL}"
 fi
-if [[ -z "${OWNER_TOKEN_TTL_HOURS:-}" || ! "${OWNER_TOKEN_TTL_HOURS}" =~ ^[0-9]+$ ]]; then
-  OWNER_TOKEN_TTL_HOURS="720"
-  upsert_env "OWNER_TOKEN_TTL_HOURS" "${OWNER_TOKEN_TTL_HOURS}"
+if [[ -z "${ADMIN_ACCESS_SECRET:-}" || "${ROTATE_SECRET}" == "true" || "${ADMIN_ACCESS_SECRET}" == change_me* ]]; then
+  ADMIN_ACCESS_SECRET="$(random_hex 24)"
+  upsert_env "ADMIN_ACCESS_SECRET" "${ADMIN_ACCESS_SECRET}"
+fi
+if [[ -z "${ADMIN_ACCESS_URL_FILE:-}" ]]; then
+  ADMIN_ACCESS_URL_FILE="./state/admin-access-url.txt"
+  upsert_env "ADMIN_ACCESS_URL_FILE" "${ADMIN_ACCESS_URL_FILE}"
 fi
 
 load_env_file
@@ -63,7 +66,7 @@ ON CONFLICT (id) DO UPDATE SET
   status = 'active';
 
 INSERT INTO admins(tenant_id, email, password_hash, role, is_mfa_enabled)
-VALUES ('${OWNER_SCOPE_ID}', '${owner_email_sql}', 'bootstrap-token-only', 'owner', FALSE)
+VALUES ('${OWNER_SCOPE_ID}', '${owner_email_sql}', 'magic-path-session', 'owner', FALSE)
 ON CONFLICT (email) DO UPDATE SET
   tenant_id = EXCLUDED.tenant_id,
   role = EXCLUDED.role;
@@ -72,57 +75,23 @@ SQL
 state_dir="${DEPLOY_DIR}/state"
 mkdir -p "${state_dir}"
 
-if [[ -z "${OWNER_BOOTSTRAP_TOKEN_FILE:-}" ]]; then
-  OWNER_BOOTSTRAP_TOKEN_FILE="./state/owner-bootstrap-token.txt"
-  upsert_env "OWNER_BOOTSTRAP_TOKEN_FILE" "${OWNER_BOOTSTRAP_TOKEN_FILE}"
-  load_env_file
-fi
-
-if [[ "${OWNER_BOOTSTRAP_TOKEN_FILE}" = /* ]]; then
-  token_file="${OWNER_BOOTSTRAP_TOKEN_FILE}"
+if [[ "${ADMIN_ACCESS_URL_FILE}" = /* ]]; then
+  url_file="${ADMIN_ACCESS_URL_FILE}"
 else
-  token_file="${DEPLOY_DIR}/${OWNER_BOOTSTRAP_TOKEN_FILE#./}"
+  url_file="${DEPLOY_DIR}/${ADMIN_ACCESS_URL_FILE#./}"
 fi
 
-b64url() {
-  openssl base64 -A | tr '+/' '-_' | tr -d '='
-}
+admin_url="${PUBLIC_BASE_URL}/${ADMIN_ACCESS_SECRET}/${OWNER_SCOPE_ID}/"
+umask 077
+printf '%s\n' "${admin_url}" >"${url_file}"
 
-escape_json() {
-  local raw="$1"
-  raw="${raw//\\/\\\\}"
-  raw="${raw//\"/\\\"}"
-  printf '%s' "${raw}"
-}
-
-generate_token() {
-  local now exp subject payload header signing_input signature
-  now="$(date +%s)"
-  exp="$((now + OWNER_TOKEN_TTL_HOURS * 3600))"
-  subject="$(escape_json "${OWNER_SUBJECT}")"
-  header='{"alg":"HS256","typ":"JWT"}'
-  payload=$(printf '{"sub":"%s","iss":"%s","aud":"%s","exp":%s,"tenant_id":"%s","scopes":["admin:read","admin:write","platform:admin"]}' \
-    "${subject}" "$(escape_json "${JWT_ISSUER}")" "$(escape_json "${JWT_AUDIENCE}")" "${exp}" "$(escape_json "${OWNER_SCOPE_ID}")")
-
-  signing_input="$(printf '%s' "${header}" | b64url).$(printf '%s' "${payload}" | b64url)"
-  signature="$(printf '%s' "${signing_input}" | openssl dgst -binary -sha256 -hmac "${JWT_SECRET}" | b64url)"
-  printf '%s.%s\n' "${signing_input}" "${signature}"
-}
-
-if [[ ! -f "${token_file}" || "${ROTATE_TOKEN}" == "true" ]]; then
-  umask 077
-  generate_token >"${token_file}"
-  log "owner bootstrap token generated at ${token_file}"
-else
-  log "owner bootstrap token already exists at ${token_file}"
-fi
-
-if [[ "${PRINT_TOKEN}" == "true" ]]; then
+if [[ "${PRINT_URL}" == "true" ]]; then
   echo >&2
-  warn "sensitive: bootstrap token is shown once" >&2
-  cat "${token_file}" >&2
+  warn "sensitive: admin access url is shown once" >&2
+  echo "${admin_url}" >&2
   echo >&2
 fi
 
 printf 'OWNER_SCOPE_ID=%s\n' "${OWNER_SCOPE_ID}"
-printf 'OWNER_BOOTSTRAP_TOKEN_FILE=%s\n' "${token_file}"
+printf 'ADMIN_ACCESS_URL=%s\n' "${admin_url}"
+printf 'ADMIN_ACCESS_URL_FILE=%s\n' "${url_file}"

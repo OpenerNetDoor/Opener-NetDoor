@@ -71,6 +71,7 @@ export interface AccessKey {
   key_type: string;
   status: "active" | "revoked" | string;
   secret_ref: string;
+  connection_uri?: string;
   created_at: string;
   expires_at?: string;
 }
@@ -173,6 +174,45 @@ export interface Node {
   created_at: string;
 }
 
+export interface NodeRuntime {
+  node_id: string;
+  tenant_id: string;
+  runtime_backend: string;
+  runtime_protocol: string;
+  listen_port: number;
+  reality_public_key: string;
+  reality_short_id: string;
+  reality_server_name: string;
+  applied_config_version: number;
+  runtime_status: string;
+  last_applied_at?: string;
+  last_error?: string;
+  created_at: string;
+  updated_at: string;
+}
+
+export interface RuntimeRevision {
+  id: number;
+  node_id: string;
+  tenant_id: string;
+  version: number;
+  config_json: string;
+  applied: boolean;
+  applied_at?: string;
+  created_at: string;
+}
+
+export interface RuntimeConfigResponse {
+  node: Node;
+  runtime: NodeRuntime;
+  revision: RuntimeRevision;
+  config_json: string;
+}
+
+export interface RuntimeApplyRequest {
+  tenant_id: string;
+  node_id: string;
+}
 export type NodeListResponse = PaginatedResponse<Node>;
 
 export interface RegisterNodeRequest {
@@ -349,6 +389,45 @@ export interface OpsSnapshot {
   invalid_signature_24h: number;
 }
 
+export interface OpsTrafficPoint {
+  ts_hour: string;
+  bytes_in: number;
+  bytes_out: number;
+  bytes_total: number;
+}
+
+export interface OpsUserGrowthPoint {
+  day: string;
+  new_users: number;
+  total_users: number;
+}
+
+export interface OpsProtocolUsagePoint {
+  protocol: string;
+  bytes_total: number;
+}
+
+export interface OpsTopServerPoint {
+  node_id: string;
+  hostname: string;
+  region: string;
+  bytes_total: number;
+  load_percent: number;
+}
+
+export interface OpsAnalytics {
+  tenant_id?: string;
+  generated_at: string;
+  total_users: number;
+  active_users: number;
+  active_keys: number;
+  online_servers: number;
+  traffic_bytes_24h: number;
+  traffic_history_7d: OpsTrafficPoint[];
+  user_growth_7d: OpsUserGrowthPoint[];
+  protocol_usage_24h: OpsProtocolUsagePoint[];
+  top_servers_by_load: OpsTopServerPoint[];
+}
 export type ConnectionState =
   | "idle"
   | "resolving_profile"
@@ -656,4 +735,17 @@ export interface ScopeMismatchInfo {
   actor_tenant_id?: string;
   required_scopes: Scope[];
 }
+
+
+
+
+export interface AdminSessionInfo {
+  authenticated: boolean;
+  subject: string;
+  tenant_id: string;
+  scopes: Scope[];
+  expires_at: string;
+}
+
+
 

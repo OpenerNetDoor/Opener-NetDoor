@@ -83,7 +83,14 @@ type Store interface {
 	ListNodeStatusCounts(ctx context.Context, tenantID string) ([]model.OpsNodeStatusCount, error)
 	CountActiveNodeCertificates(ctx context.Context, tenantID string) (int, error)
 	CountExpiringNodeCertificates(ctx context.Context, tenantID string, before time.Time) (int, error)
+	CountUsersByStatus(ctx context.Context, tenantID string, status string) (int, error)
+	CountUsersCreatedBefore(ctx context.Context, tenantID string, before time.Time) (int, error)
+	CountAccessKeysByStatus(ctx context.Context, tenantID string, status string) (int, error)
 	GetTrafficUsageTotalBetween(ctx context.Context, tenantID string, since time.Time, until time.Time) (int64, error)
+	ListTrafficUsageSeries(ctx context.Context, tenantID string, since time.Time, until time.Time) ([]model.OpsTrafficPoint, error)
+	ListUserGrowthByDay(ctx context.Context, tenantID string, since time.Time, until time.Time) ([]model.OpsUserGrowthPoint, error)
+	ListProtocolUsageBetween(ctx context.Context, tenantID string, since time.Time, until time.Time) ([]model.OpsProtocolUsagePoint, error)
+	ListTopServersByTraffic(ctx context.Context, tenantID string, since time.Time, until time.Time, limit int) ([]model.OpsTopServerPoint, error)
 	CountAuditActionsSince(ctx context.Context, tenantID string, action string, since time.Time) (int, error)
 
 	Ping(ctx context.Context) error

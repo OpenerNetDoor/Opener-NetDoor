@@ -2,6 +2,11 @@
 http://127.0.0.1 {
   encode zstd gzip
 
+  @magic path_regexp magic ^/[A-Za-z0-9_-]{16,}/[0-9a-fA-F-]{36}/?$
+  handle @magic {
+    reverse_proxy api-gateway:8080
+  }
+
   @api path /v1*
   handle @api {
     reverse_proxy api-gateway:8080

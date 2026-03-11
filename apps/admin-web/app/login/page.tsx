@@ -1,58 +1,84 @@
 "use client";
 
-import { FormEvent, useState } from "react";
-import type { Scope, ThemeMode } from "@opener-netdoor/shared-types";
-import { setDefaultScopeId, setSession, setTheme } from "../../lib/auth/session";
+import { FormEvent, useEffect, useState } from "react";
+import type { ThemeMode } from "@opener-netdoor/shared-types";
 import { ensureBaseURL } from "../../lib/api/client";
-import { Card, PageTitle, StatusBadge } from "../../components/ui";
-
-const defaultScopes = "admin:read,admin:write";
-const defaultScope = process.env.NEXT_PUBLIC_DEFAULT_SCOPE_ID ?? "default";
+import { getTheme, hydrateSession, setTheme } from "../../lib/auth/session";
+import { Card, PageTitle } from "../../components/ui";
 
 export default function LoginPage() {
   const [baseUrl, setBaseUrl] = useState(process.env.NEXT_PUBLIC_API_BASE_URL ?? "http://127.0.0.1:8080");
-  const [subject, setSubject] = useState("owner");
-  const [token, setToken] = useState("");
-  const [scopeId, setScopeId] = useState(defaultScope);
-  const [scopes, setScopes] = useState(defaultScopes);
+  const [magicUrl, setMagicUrl] = useState("");
   const [theme, setThemeMode] = useState<ThemeMode>("dark");
+  const [checking, setChecking] = useState(false);
+  const [message, setMessage] = useState("Open your installer-provided admin access URL to create a session.");
 
-  const onSubmit = (event: FormEvent) => {
+  useEffect(() => {
+    setThemeMode(getTheme());
+    setChecking(true);
+    void hydrateSession(ensureBaseURL(baseUrl))
+      .then((session) => {
+        if (session) {
+          window.location.href = "/dashboard";
+          return;
+        }
+        setMessage("No active session. Open admin access URL from installer output.");
+      })
+      .catch(() => setMessage("No active session. Open admin access URL from installer output."))
+      .finally(() => setChecking(false));
+  }, []);
+
+  const onCheckSession = async (event: FormEvent) => {
     event.preventDefault();
-    const parsedScopes = scopes
-      .split(",")
-      .map((scope) => scope.trim())
-      .filter(Boolean) as Scope[];
-
     setTheme(theme);
-    setDefaultScopeId(scopeId);
-    setSession({
-      subject: subject.trim(),
-      token: token.trim(),
-      tenantId: scopeId.trim() || undefined,
-      scopes: parsedScopes,
-      baseUrl: ensureBaseURL(baseUrl),
-      theme,
-    });
+    setChecking(true);
+    const session = await hydrateSession(ensureBaseURL(baseUrl)).catch(() => null);
+    setChecking(false);
+    if (session) {
+      window.location.href = "/dashboard";
+      return;
+    }
+    setMessage("Session is not active yet. Open the admin magic URL first.");
+  };
 
-    window.location.href = "/dashboard";
+  const onOpenMagic = (event: FormEvent) => {
+    event.preventDefault();
+    if (!magicUrl.trim()) {
+      setMessage("Paste your admin access URL from installer summary.");
+      return;
+    }
+    window.location.href = magicUrl.trim();
   };
 
   return (
     <main style={{ minHeight: "100vh", display: "grid", placeItems: "center", padding: 16 }}>
-      <div style={{ width: "min(920px, 100%)", display: "grid", gap: 16 }}>
-        <PageTitle title="Opener NetDoor" subtitle="Single-owner admin panel login." />
+      <div style={{ width: "min(860px, 100%)", display: "grid", gap: 16 }}>
+        <PageTitle title="Opener NetDoor" subtitle="Single-owner admin access" />
 
         <div className="grid-two">
-          <Card title="Panel access" subtitle="This form stores local browser session only.">
-            <form onSubmit={onSubmit} className="row">
+          <Card title="Open admin panel" subtitle="Use magic URL generated during install.">
+            <form onSubmit={onOpenMagic} className="row">
               <label>
-                API Base URL
-                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
+                Admin access URL
+                <input
+                  value={magicUrl}
+                  onChange={(event) => setMagicUrl(event.target.value)}
+                  placeholder="https://HOST/ADMIN_SECRET/OWNER_UUID/"
+                />
               </label>
+              <div style={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
+                <button className="nd-btn is-primary" type="submit">
+                  Open access URL
+                </button>
+              </div>
+            </form>
+          </Card>
+
+          <Card title="Session check" subtitle="Cookie-based auth; JWT paste is disabled.">
+            <form onSubmit={onCheckSession} className="row">
               <label>
-                Owner name
-                <input value={subject} onChange={(event) => setSubject(event.target.value)} required />
+                API base URL
+                <input value={baseUrl} onChange={(event) => setBaseUrl(event.target.value)} required />
               </label>
               <label>
                 Theme
@@ -62,42 +88,13 @@ export default function LoginPage() {
                   <option value="system">system</option>
                 </select>
               </label>
-              <details style={{ width: "100%" }}>
-                <summary>Advanced session options</summary>
-                <div style={{ display: "grid", gap: 8, marginTop: 8 }}>
-                  <label>
-                    Hidden workspace scope
-                    <input value={scopeId} onChange={(event) => setScopeId(event.target.value)} />
-                  </label>
-                  <label>
-                    Scopes (comma separated)
-                    <input value={scopes} onChange={(event) => setScopes(event.target.value)} required />
-                  </label>
-                </div>
-              </details>
-              <label style={{ flexBasis: "100%" }}>
-                JWT token
-                <textarea value={token} onChange={(event) => setToken(event.target.value)} rows={6} required />
-              </label>
               <div style={{ width: "100%", display: "flex", justifyContent: "flex-end" }}>
-                <button className="nd-btn is-primary" type="submit">
-                  Open panel
+                <button className="nd-btn is-secondary" type="submit" disabled={checking}>
+                  {checking ? "Checking..." : "Check session"}
                 </button>
               </div>
             </form>
-          </Card>
-
-          <Card title="Access scopes" subtitle="Navigation and write actions depend on JWT claims.">
-            <div className="row">
-              {scopes
-                .split(",")
-                .map((scope) => scope.trim())
-                .filter(Boolean)
-                .map((scope) => (
-                  <StatusBadge key={scope} value={scope} />
-                ))}
-            </div>
-            <p>Internal scope isolation remains enforced in gateway/core-platform even when hidden in UI.</p>
+            <p>{message}</p>
           </Card>
         </div>
       </div>

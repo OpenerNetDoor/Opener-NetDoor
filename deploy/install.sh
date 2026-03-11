@@ -10,7 +10,7 @@ LE_EMAIL=""
 PUBLIC_IP=""
 MODE=""
 SKIP_DOCKER_INSTALL="false"
-ROTATE_TOKEN="false"
+ROTATE_ADMIN_SECRET="false"
 
 usage() {
   cat <<'EOF'
@@ -24,7 +24,7 @@ Options:
   --ip-mode                  Force plain HTTP IP mode.
   --domain-mode              Force domain mode (requires --domain).
   --skip-docker-install      Do not install Docker automatically.
-  --rotate-owner-token       Regenerate owner bootstrap token.
+  --rotate-admin-secret      Regenerate admin access secret.
   -h, --help                 Show help.
 EOF
 }
@@ -52,8 +52,8 @@ while [[ $# -gt 0 ]]; do
     --skip-docker-install)
       SKIP_DOCKER_INSTALL="true"
       ;;
-    --rotate-owner-token)
-      ROTATE_TOKEN="true"
+    --rotate-admin-secret)
+      ROTATE_ADMIN_SECRET="true"
       ;;
     -h|--help)
       usage
@@ -113,6 +113,15 @@ if ! docker compose version >/dev/null 2>&1; then
   die "docker compose plugin is required"
 fi
 
+if ! command -v jq >/dev/null 2>&1; then
+  if [[ "${EUID}" -eq 0 ]]; then
+    apt-get update -y
+    apt-get install -y jq
+  else
+    die "jq is required for runtime bootstrap. install jq and retry"
+  fi
+fi
+
 ensure_env_file
 load_env_file
 
@@ -124,6 +133,12 @@ jwt_secret_value="${JWT_SECRET:-}"
 jwt_secret_len=${#jwt_secret_value}
 if is_placeholder "${JWT_SECRET:-}" || [[ ${jwt_secret_len} -lt 32 ]]; then
   upsert_env "JWT_SECRET" "$(random_hex 48)"
+fi
+
+session_secret_value="${SESSION_SECRET:-}"
+session_secret_len=${#session_secret_value}
+if is_placeholder "${SESSION_SECRET:-}" || [[ ${session_secret_len} -lt 32 ]]; then
+  upsert_env "SESSION_SECRET" "$(random_hex 48)"
 fi
 
 node_signing_value="${NODE_SIGNING_SECRET:-}"
@@ -144,11 +159,32 @@ fi
 if [[ -z "${OWNER_SCOPE_NAME:-}" ]]; then
   upsert_env "OWNER_SCOPE_NAME" "Default Owner Scope"
 fi
-if [[ -z "${OWNER_TOKEN_TTL_HOURS:-}" ]]; then
-  upsert_env "OWNER_TOKEN_TTL_HOURS" "720"
+if [[ -z "${SESSION_COOKIE_NAME:-}" ]]; then
+  upsert_env "SESSION_COOKIE_NAME" "opener_netdoor_session"
 fi
-if [[ -z "${OWNER_BOOTSTRAP_TOKEN_FILE:-}" ]]; then
-  upsert_env "OWNER_BOOTSTRAP_TOKEN_FILE" "./state/owner-bootstrap-token.txt"
+if [[ -z "${SESSION_TTL:-}" ]]; then
+  upsert_env "SESSION_TTL" "168h"
+fi
+if [[ -z "${ADMIN_ACCESS_SECRET:-}" || "${ADMIN_ACCESS_SECRET}" == change_me* ]]; then
+  upsert_env "ADMIN_ACCESS_SECRET" "$(random_hex 24)"
+fi
+if [[ -z "${ADMIN_ACCESS_URL_FILE:-}" ]]; then
+  upsert_env "ADMIN_ACCESS_URL_FILE" "./state/admin-access-url.txt"
+fi
+if [[ -z "${XRAY_IMAGE:-}" ]]; then
+  upsert_env "XRAY_IMAGE" "ghcr.io/xtls/xray-core:latest"
+fi
+if [[ -z "${RUNTIME_ENABLED:-}" ]]; then
+  upsert_env "RUNTIME_ENABLED" "true"
+fi
+if [[ -z "${RUNTIME_VLESS_PORT:-}" ]]; then
+  upsert_env "RUNTIME_VLESS_PORT" "8443"
+fi
+if [[ -z "${RUNTIME_REALITY_SHORT_ID:-}" ]]; then
+  upsert_env "RUNTIME_REALITY_SHORT_ID" "$(random_hex 8)"
+fi
+if [[ -z "${RUNTIME_REALITY_SERVER_NAME:-}" ]]; then
+  upsert_env "RUNTIME_REALITY_SERVER_NAME" "www.cloudflare.com"
 fi
 
 load_env_file
@@ -175,6 +211,8 @@ if [[ "${MODE}" == "domain" ]]; then
   upsert_env "PUBLIC_HOST" "${DOMAIN}"
   upsert_env "HTTPS_ENABLED" "true"
   upsert_env "PUBLIC_BASE_URL" "https://${DOMAIN}"
+  upsert_env "SESSION_SECURE" "true"
+  upsert_env "RUNTIME_PUBLIC_HOST" "${DOMAIN}"
 else
   if [[ -z "${PUBLIC_IP}" ]]; then
     PUBLIC_IP="$(detect_public_ipv4)"
@@ -183,12 +221,27 @@ else
   upsert_env "PUBLIC_HOST" "${PUBLIC_IP}"
   upsert_env "HTTPS_ENABLED" "false"
   upsert_env "PUBLIC_BASE_URL" "http://${PUBLIC_IP}"
+  upsert_env "SESSION_SECURE" "false"
+  upsert_env "RUNTIME_PUBLIC_HOST" "${PUBLIC_IP}"
 fi
 
 load_env_file
 
+bash "${SCRIPT_DIR}/scripts/generate-reality-keys.sh"
+load_env_file
+
 bash "${SCRIPT_DIR}/scripts/render-caddyfile.sh"
-mkdir -p "${DEPLOY_DIR}/state"
+mkdir -p "${DEPLOY_DIR}/state/xray"
+
+if [[ ! -f "${DEPLOY_DIR}/state/xray/config.json" ]]; then
+  cat >"${DEPLOY_DIR}/state/xray/config.json" <<EOF
+{
+  "log": {"loglevel": "warning"},
+  "inbounds": [],
+  "outbounds": [{"protocol":"freedom"}]
+}
+EOF
+fi
 
 configure_firewall_if_active
 
@@ -198,18 +251,25 @@ compose up -d postgres redis nats
 log "running database migrations"
 compose run --rm migrate
 
-log "starting application services"
+log "starting control plane services"
 compose up -d --build core-platform api-gateway admin-web caddy
 
 bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
 
-bootstrap_flags=(--print-token)
-if [[ "${ROTATE_TOKEN}" == "true" ]]; then
-  bootstrap_flags+=(--rotate-token)
+owner_flags=(--print-url)
+if [[ "${ROTATE_ADMIN_SECRET}" == "true" ]]; then
+  owner_flags+=(--rotate-secret)
 fi
-owner_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-owner.sh" "${bootstrap_flags[@]}")"
+owner_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-owner.sh" "${owner_flags[@]}")"
 owner_scope_id="$(echo "${owner_info}" | awk -F= '/^OWNER_SCOPE_ID=/{print $2}' | tail -n1)"
-owner_token_file="$(echo "${owner_info}" | awk -F= '/^OWNER_BOOTSTRAP_TOKEN_FILE=/{print $2}' | tail -n1)"
+admin_access_url="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL=/{print $2}' | tail -n1)"
+admin_access_url_file="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL_FILE=/{print $2}' | tail -n1)"
+
+runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
+runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
+
+log "starting xray runtime service"
+compose up -d xray
 
 log "running post-bootstrap health checks"
 api_ready_status="failed"
@@ -220,6 +280,10 @@ panel_status="failed"
 if curl -fsS --max-time 5 "${PUBLIC_BASE_URL}/login" >/dev/null 2>&1; then
   panel_status="ok"
 fi
+runtime_status="failed"
+if compose ps xray 2>/dev/null | grep -qi "running"; then
+  runtime_status="running"
+fi
 
 compose_ps="$(compose ps --format json 2>/dev/null || true)"
 
@@ -228,15 +292,13 @@ cat <<EOF
 Opener NetDoor install completed.
 
 Panel URL: ${PUBLIC_BASE_URL}
+Admin access URL: ${admin_access_url}
 HTTPS enabled: ${HTTPS_ENABLED}
 Hidden owner scope: ${owner_scope_id}
 
-Owner access:
-  - Open ${PUBLIC_BASE_URL}/login in your browser.
-  - Use subject: ${OWNER_SUBJECT}
-  - Use scope: ${owner_scope_id}
-  - Paste bootstrap token shown above.
-  - Token file: ${owner_token_file}
+Runtime:
+  - Node ID: ${runtime_node_id}
+  - Xray service: ${runtime_status}
 
 Service summary:
   - API readiness: ${api_ready_status}
@@ -245,10 +307,12 @@ Service summary:
 Docker services (json):
 ${compose_ps}
 
+Sensitive files:
+  - ${admin_access_url_file}
+
 Config files:
   - deploy/.env
   - deploy/Caddyfile
-  - ${owner_token_file}
 
 EOF
 

@@ -3,8 +3,9 @@
 import { useEffect, useMemo, useState } from "react";
 import { usePathname } from "next/navigation";
 import type { ThemeMode } from "@opener-netdoor/shared-types";
-import { getSession, getTheme, setTheme, type AdminSession } from "../../lib/auth/session";
-import { buildHeaderNotifications } from "../../lib/mock/notifications";
+import { OpenerNetDoorClient } from "@opener-netdoor/sdk-ts";
+import { getSession, getTheme, resolveSessionScope, setTheme, type AdminSession } from "../../lib/auth/session";
+import { buildNotificationFeed, type NotificationView } from "../../lib/adapters/notifications";
 import { Sidebar } from "./sidebar";
 import { Topbar } from "./topbar";
 
@@ -27,6 +28,7 @@ export function AppShell({ children }: { children: React.ReactNode }) {
   const [theme, setThemeState] = useState<ThemeMode>("dark");
   const [sidebarCollapsed, setSidebarCollapsed] = useState(false);
   const [mobileSidebar, setMobileSidebar] = useState(false);
+  const [notifications, setNotifications] = useState<NotificationView[]>([]);
 
   useEffect(() => {
     const next = getSession();
@@ -56,6 +58,40 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     root.dataset.theme = theme;
   }, [theme]);
 
+  useEffect(() => {
+    let cancelled = false;
+
+    if (!session?.baseUrl) {
+      setNotifications([]);
+      return () => {
+        cancelled = true;
+      };
+    }
+
+    const scopeId = resolveSessionScope(session);
+    const client = new OpenerNetDoorClient({
+      baseUrl: session.baseUrl,
+      tenantId: scopeId,
+    });
+
+    void client
+      .listAuditLogs({ tenantId: scopeId, limit: 8, offset: 0 })
+      .then((res) => {
+        if (!cancelled) {
+          setNotifications(buildNotificationFeed(res.items));
+        }
+      })
+      .catch(() => {
+        if (!cancelled) {
+          setNotifications([]);
+        }
+      });
+
+    return () => {
+      cancelled = true;
+    };
+  }, [pathname, session?.baseUrl, session?.tenantId]);
+
   const title = useMemo(() => {
     const parts = pathname.split("/").filter(Boolean);
     if (parts.length === 0) {
@@ -64,8 +100,6 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     const first = parts[0];
     return TITLE_MAP[first] ?? parts.map((part) => part.replace(/-/g, " ")).join(" / ");
   }, [pathname]);
-
-  const notifications = useMemo(() => buildHeaderNotifications(pathname), [pathname]);
 
   return (
     <div className="nd-shell">
@@ -94,3 +128,5 @@ export function AppShell({ children }: { children: React.ReactNode }) {
     </div>
   );
 }
+
+

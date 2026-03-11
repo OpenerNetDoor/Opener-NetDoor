@@ -58,6 +58,11 @@ func (s *CoreService) CreateNode(ctx context.Context, actor model.ActorPrincipal
 	}
 	item.Status = s.deriveNodeStatus(item, time.Now().UTC())
 
+	runtimeItem, runtimeErr := s.ensureNodeRuntimeDefaults(ctx, item)
+	if runtimeErr != nil {
+		return model.Node{}, runtimeErr
+	}
+
 	if err := s.store.InsertAuditLog(ctx, model.AuditLogEvent{
 		TenantID:   item.TenantID,
 		ActorType:  "admin",
@@ -66,10 +71,12 @@ func (s *CoreService) CreateNode(ctx context.Context, actor model.ActorPrincipal
 		TargetType: "node",
 		TargetID:   item.ID,
 		Metadata: map[string]any{
-			"hostname":    item.Hostname,
-			"region":      item.Region,
-			"node_key_id": item.NodeKeyID,
-			"source":      "owner_panel",
+			"hostname":         item.Hostname,
+			"region":           item.Region,
+			"node_key_id":      item.NodeKeyID,
+			"source":           "owner_panel",
+			"runtime_backend":  runtimeItem.RuntimeBackend,
+			"runtime_protocol": runtimeItem.RuntimeProtocol,
 		},
 		OccurredAt: time.Now().UTC(),
 	}); err != nil {

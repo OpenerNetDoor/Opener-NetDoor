@@ -1,5 +1,4 @@
 import type { User } from "@opener-netdoor/shared-types";
-import { hashToPercent } from "../format";
 
 export interface UserRowVM {
   id: string;
@@ -7,12 +6,12 @@ export interface UserRowVM {
   email: string;
   status: "Active" | "Blocked" | "Expired";
   createdAt: string;
-  trafficUsedBytes: number;
-  trafficLimitBytes: number;
-  trafficPercent: number;
-  subscription: "Basic" | "Standard" | "Premium" | "Enterprise";
-  expiresAt: string;
-  dataKind: "backend" | "derived";
+  trafficUsedBytes: number | null;
+  trafficLimitBytes: number | null;
+  trafficPercent: number | null;
+  subscription: "Basic" | "Standard" | "Premium" | "Enterprise" | null;
+  expiresAt: string | null;
+  dataKind: "backend" | "empty";
 }
 
 interface UserNoteMeta {
@@ -22,13 +21,6 @@ interface UserNoteMeta {
   traffic_used_bytes?: number;
   expires_at?: string;
 }
-
-const PLAN_LIMITS: Record<UserRowVM["subscription"], number> = {
-  Basic: 50,
-  Standard: 100,
-  Premium: 300,
-  Enterprise: 1000,
-};
 
 function deriveName(email: string, userId: string): string {
   const left = email.split("@")[0]?.trim();
@@ -73,19 +65,6 @@ function normalizeSubscription(raw?: string): UserRowVM["subscription"] | undefi
   }
 }
 
-function derivedSubscription(seed: number): UserRowVM["subscription"] {
-  if (seed > 82) {
-    return "Enterprise";
-  }
-  if (seed > 62) {
-    return "Premium";
-  }
-  if (seed > 34) {
-    return "Standard";
-  }
-  return "Basic";
-}
-
 function normalizeStatus(status: string, expiresAt?: string): UserRowVM["status"] {
   if (status === "blocked") {
     return "Blocked";
@@ -100,39 +79,38 @@ function normalizeStatus(status: string, expiresAt?: string): UserRowVM["status"
 }
 
 export function toUserRowVM(user: User): UserRowVM {
-  const synthetic = hashToPercent(`${user.id}:${user.tenant_id}`);
   const note = parseUserNote(user.note);
 
-  const subscription = normalizeSubscription(note.subscription) ?? derivedSubscription(synthetic);
-  const limitGB = typeof note.traffic_limit_gb === "number" && note.traffic_limit_gb > 0 ? note.traffic_limit_gb : PLAN_LIMITS[subscription];
+  const subscription = normalizeSubscription(note.subscription) ?? null;
+  const trafficLimitBytes =
+    typeof note.traffic_limit_gb === "number" && note.traffic_limit_gb > 0
+      ? Math.round(note.traffic_limit_gb * 1024 * 1024 * 1024)
+      : null;
 
-  // Backend does not expose first-class usage/plan/expiry yet, so we consume note metadata when present
-  // and fall back to deterministic derived placeholders to keep the table stable.
-  const usedBytes =
-    typeof note.traffic_used_bytes === "number" && note.traffic_used_bytes >= 0
-      ? note.traffic_used_bytes
-      : Math.round((limitGB * 1024 * 1024 * 1024 * synthetic) / 100);
+  const trafficUsedBytes =
+    typeof note.traffic_used_bytes === "number" && note.traffic_used_bytes >= 0 ? note.traffic_used_bytes : null;
 
-  const expiresAt =
-    typeof note.expires_at === "string" && note.expires_at.trim()
-      ? note.expires_at
-      : new Date(Date.now() + (18 + synthetic) * 24 * 60 * 60 * 1000).toISOString();
-
-  const trafficLimitBytes = Math.round(limitGB * 1024 * 1024 * 1024);
+  const expiresAt = typeof note.expires_at === "string" && note.expires_at.trim() ? note.expires_at : null;
   const name = note.display_name?.trim() || deriveName(user.email ?? "", user.id);
 
   return {
     id: user.id,
     name,
     email: user.email || "unknown@example.com",
-    status: normalizeStatus(user.status, expiresAt),
+    status: normalizeStatus(user.status, expiresAt ?? undefined),
     createdAt: user.created_at,
-    trafficUsedBytes: usedBytes,
+    trafficUsedBytes,
     trafficLimitBytes,
-    trafficPercent: trafficLimitBytes > 0 ? Math.max(0, Math.min(100, (usedBytes / trafficLimitBytes) * 100)) : 0,
+    trafficPercent:
+      typeof trafficUsedBytes === "number" && typeof trafficLimitBytes === "number" && trafficLimitBytes > 0
+        ? Math.max(0, Math.min(100, (trafficUsedBytes / trafficLimitBytes) * 100))
+        : null,
     subscription,
     expiresAt,
-    dataKind: note.display_name || note.subscription || note.traffic_limit_gb || note.traffic_used_bytes || note.expires_at ? "backend" : "derived",
+    dataKind:
+      note.display_name || note.subscription || note.traffic_limit_gb || note.traffic_used_bytes || note.expires_at
+        ? "backend"
+        : "empty",
   };
 }
 

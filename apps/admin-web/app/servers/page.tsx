@@ -130,12 +130,6 @@ export default function ServersPage() {
   const onlineCount = useMemo(() => items.filter((item) => item.status === "active").length, [items]);
   const pendingCount = useMemo(() => items.filter((item) => item.status === "pending").length, [items]);
   const revokedCount = useMemo(() => items.filter((item) => item.status === "revoked").length, [items]);
-  const averageHealth = useMemo(() => {
-    if (items.length === 0) {
-      return 0;
-    }
-    return Math.round(items.reduce((acc, item) => acc + item.healthScore, 0) / items.length);
-  }, [items]);
 
   const onCreateServer = async () => {
     if (!scopeId || !canWrite) {
@@ -256,12 +250,12 @@ export default function ServersPage() {
                 </header>
 
                 <div className="nd-server-metrics">
-                  <ProgressBar value={row.healthScore} label="Health" hint={row.healthLabel} />
+                  <span style={{ color: "var(--nd-text-secondary)" }}>Status telemetry is not exposed as load percentages yet.</span>
                 </div>
 
                 <div className="row" style={{ justifyContent: "space-between", margin: 0 }}>
                   <span style={{ color: "var(--nd-text-secondary)" }}>Region: {row.region}</span>
-                  <span style={{ color: "var(--nd-text-secondary)" }}>Avg health: {averageHealth}%</span>
+                  <span style={{ color: "var(--nd-text-secondary)" }}>Load: No data</span>
                 </div>
 
                 <div className="row" style={{ justifyContent: "space-between", margin: 0 }}>
@@ -332,7 +326,7 @@ export default function ServersPage() {
                 <strong>{detail.serverName}</strong> · {detail.region}
               </p>
               <StatusBadge value={detail.status} />
-              <ProgressBar value={detail.healthScore} label="Health" hint={detail.healthLabel} />
+              <p style={{ color: "var(--nd-text-secondary)" }}>Load telemetry: No data</p>
               <p>Last seen: {detail.lastSeen}</p>
               <p>Last heartbeat: {detail.heartbeat}</p>
 
@@ -451,3 +445,5 @@ export default function ServersPage() {
     </RouteGuard>
   );
 }
+
+

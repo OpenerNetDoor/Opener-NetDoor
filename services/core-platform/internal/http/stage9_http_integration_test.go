@@ -106,6 +106,31 @@ func TestHTTPAuditLogsAndOpsSnapshotWithPostgres(t *testing.T) {
 		t.Fatalf("expected replay_rejected_24h >= 1, got %d", snapshot.ReplayRejected24h)
 	}
 
+	analyticsReq, _ := http.NewRequest(http.MethodGet, ts.URL+"/internal/v1/ops/analytics?tenant_id="+tenant.ID, nil)
+	for k, v := range platformHeaders {
+		analyticsReq.Header.Set(k, v)
+	}
+	analyticsResp, err := http.DefaultClient.Do(analyticsReq)
+	if err != nil {
+		t.Fatalf("ops analytics request: %v", err)
+	}
+	defer analyticsResp.Body.Close()
+	if analyticsResp.StatusCode != http.StatusOK {
+		buf := new(bytes.Buffer)
+		_, _ = buf.ReadFrom(analyticsResp.Body)
+		t.Fatalf("expected 200 ops analytics, got %d body=%s", analyticsResp.StatusCode, buf.String())
+	}
+	var analytics model.OpsAnalytics
+	if err := json.NewDecoder(analyticsResp.Body).Decode(&analytics); err != nil {
+		t.Fatalf("decode ops analytics: %v", err)
+	}
+	if analytics.TotalUsers < 1 {
+		t.Fatalf("expected total_users >= 1, got %d", analytics.TotalUsers)
+	}
+	if len(analytics.ProtocolUsage24h) == 0 {
+		t.Fatal("expected non-empty protocol usage")
+	}
+
 	tenantScopedHeaders := map[string]string{
 		"X-Actor-Sub":       "tenant-admin",
 		"X-Actor-Tenant-ID": tenant.ID,

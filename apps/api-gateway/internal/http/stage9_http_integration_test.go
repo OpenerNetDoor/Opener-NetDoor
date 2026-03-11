@@ -98,6 +98,34 @@ func TestGatewayAuditLogsAndOpsSnapshotWithLiveCore(t *testing.T) {
 		t.Fatalf("expected replay rejected >= 1, got %d", snapshot.ReplayRejected24h)
 	}
 
+	status, body = gatewayRequest(t, http.MethodGet, gw.URL+"/v1/admin/ops/analytics?tenant_id="+tenant.ID, platformHeaders, nil)
+	if status != http.StatusOK {
+		t.Fatalf("expected 200 ops analytics, got %d body=%s", status, body)
+	}
+	var analytics struct {
+		TotalUsers       int   `json:"total_users"`
+		ActiveUsers      int   `json:"active_users"`
+		TrafficBytes24h  int64 `json:"traffic_bytes_24h"`
+		ProtocolUsage24h []struct {
+			Protocol string `json:"protocol"`
+		} `json:"protocol_usage_24h"`
+	}
+	if err := json.Unmarshal([]byte(body), &analytics); err != nil {
+		t.Fatalf("decode ops analytics payload: %v", err)
+	}
+	if analytics.TotalUsers < 1 {
+		t.Fatalf("expected total users >= 1, got %d", analytics.TotalUsers)
+	}
+	if analytics.ActiveUsers < 1 {
+		t.Fatalf("expected active users >= 1, got %d", analytics.ActiveUsers)
+	}
+	if analytics.TrafficBytes24h < 333 {
+		t.Fatalf("expected analytics traffic bytes >= 333, got %d", analytics.TrafficBytes24h)
+	}
+	if len(analytics.ProtocolUsage24h) == 0 {
+		t.Fatal("expected non-empty protocol usage")
+	}
+
 	tenantToken := testutil.MustIssueToken(t, testutil.TokenParams{
 		Secret:   cfg.JWTSecret,
 		Issuer:   cfg.JWTIssuer,
