@@ -44,10 +44,9 @@ compose up -d postgres redis nats
 log "running migrations"
 compose run --rm migrate
 
-log "rebuilding application services"
-compose up -d --build core-platform api-gateway admin-web caddy
-
-bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
+log "rebuilding control plane services (core-platform + api-gateway)"
+compose up -d --build core-platform api-gateway
+bash "${SCRIPT_DIR}/scripts/wait-control-plane.sh" "240"
 
 owner_args=()
 if [[ "${ROTATE_ADMIN_SECRET}" == "true" ]]; then
@@ -59,7 +58,12 @@ admin_access_url="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL=/{print $
 runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
 runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
 
+log "restarting xray runtime service"
 compose up -d xray
+
+log "rebuilding panel and reverse proxy"
+compose up -d --build admin-web caddy
+bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
 
 cat <<EOF
 
@@ -72,3 +76,4 @@ Runtime node: ${runtime_node_id}
 EOF
 
 print_compose_hint
+

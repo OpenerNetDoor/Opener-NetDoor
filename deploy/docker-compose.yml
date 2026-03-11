@@ -77,8 +77,6 @@ services:
       RUNTIME_REALITY_PUBLIC_KEY: ${RUNTIME_REALITY_PUBLIC_KEY}
       RUNTIME_REALITY_SHORT_ID: ${RUNTIME_REALITY_SHORT_ID}
       RUNTIME_REALITY_SERVER_NAME: ${RUNTIME_REALITY_SERVER_NAME}
-    ports:
-      - "127.0.0.1:8081:8081"
     depends_on:
       postgres:
         condition: service_healthy
@@ -142,7 +140,7 @@ services:
     volumes:
       - ./state/xray/config.json:/etc/xray/config.json:ro
     ports:
-      - "${RUNTIME_VLESS_PORT:-8443}:${RUNTIME_VLESS_PORT:-8443}/tcp"
+      - "${RUNTIME_VLESS_PORT:-8443}:${RUNTIME_VLESS_PORT:-8443}"
     depends_on:
       core-platform:
         condition: service_started
@@ -177,3 +175,5 @@ networks:
   public:
   backend:
     internal: true
+
+

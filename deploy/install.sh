@@ -251,10 +251,9 @@ compose up -d postgres redis nats
 log "running database migrations"
 compose run --rm migrate
 
-log "starting control plane services"
-compose up -d --build core-platform api-gateway admin-web caddy
-
-bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
+log "starting control plane services (core-platform + api-gateway)"
+compose up -d --build core-platform api-gateway
+bash "${SCRIPT_DIR}/scripts/wait-control-plane.sh" "240"
 
 owner_flags=(--print-url)
 if [[ "${ROTATE_ADMIN_SECRET}" == "true" ]]; then
@@ -270,6 +269,10 @@ runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $
 
 log "starting xray runtime service"
 compose up -d xray
+
+log "starting panel and reverse proxy"
+compose up -d --build admin-web caddy
+bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
 
 log "running post-bootstrap health checks"
 api_ready_status="failed"
@@ -317,3 +320,4 @@ Config files:
 EOF
 
 print_compose_hint
+

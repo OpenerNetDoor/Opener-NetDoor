@@ -285,6 +285,7 @@ func (s *CoreService) generateXrayConfig(ctx context.Context, node model.Node, r
 		"inbounds": []map[string]any{
 			{
 				"tag":      "vless-reality-in",
+				"listen":   "0.0.0.0",
 				"port":     runtime.ListenPort,
 				"protocol": "vless",
 				"settings": map[string]any{
