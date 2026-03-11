@@ -7,7 +7,11 @@ Thumbs.db
 # Env
 .env
 .env.local
+deploy/.env
 infra/compose/prod/env/prod.env
+
+# Deploy state
+deploy/state/
 
 # Logs
 *.log
@@ -17,12 +21,16 @@ infra/compose/prod/env/prod.env
 # Node
 node_modules/
 .pnpm-store/
+.pnpm-debug.log*
 apps/*/.next/
 apps/*/dist/
+packages/*/dist/
 
 # Flutter / Dart
 .dart_tool/
 build/
+apps/mobile-client/.dart_tool/
+apps/mobile-client/build/
 
 # Rust / Tauri
 **/target/
@@ -30,3 +38,13 @@ build/
 # Go
 bin/
 coverage.out
+
+# Local caches
+tmpcache/
+.gocache/
+.gomodcache/
+backup-patch/
+tmp/
+ops/tmp_stage8_remaining_output.md
+.gocache/
+.gomodcache/
