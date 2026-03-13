@@ -1,11 +1,20 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+UPGRADE_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
-source "${SCRIPT_DIR}/scripts/lib.sh"
+source "${UPGRADE_DIR}/scripts/lib.sh"
 
 ROTATE_ADMIN_SECRET="false"
+
+
+run_upgrade_helper() {
+  local helper="$1"
+  shift || true
+  local helper_path="${UPGRADE_DIR}/scripts/${helper}"
+  [[ -f "${helper_path}" ]] || die "missing deploy helper script: ${helper_path}"
+  bash "${helper_path}" "$@"
+}
 
 while [[ $# -gt 0 ]]; do
   case "$1" in
@@ -31,9 +40,9 @@ require_cmd jq
 ensure_env_file
 load_env_file
 
-bash "${SCRIPT_DIR}/scripts/generate-reality-keys.sh"
+run_upgrade_helper "generate-reality-keys.sh"
 load_env_file
-bash "${SCRIPT_DIR}/scripts/render-caddyfile.sh"
+run_upgrade_helper "render-caddyfile.sh"
 
 log "pulling latest base images"
 compose pull postgres redis nats caddy xray || warn "compose pull completed with warnings"
@@ -46,25 +55,25 @@ compose run --rm migrate
 
 log "rebuilding control plane services (core-platform + api-gateway)"
 compose up -d --build core-platform api-gateway
-bash "${SCRIPT_DIR}/scripts/wait-control-plane.sh" "240"
+run_upgrade_helper "wait-control-plane.sh" "240"
 
 owner_args=()
 if [[ "${ROTATE_ADMIN_SECRET}" == "true" ]]; then
   owner_args+=(--rotate-secret)
 fi
-owner_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-owner.sh" "${owner_args[@]}")"
+owner_info="$(run_upgrade_helper "bootstrap-owner.sh" "${owner_args[@]}")"
 admin_access_url="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL=/{print $2}' | tail -n1)"
 
-runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
+runtime_info="$(run_upgrade_helper "bootstrap-runtime.sh")"
 runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
 
 log "restarting xray runtime service"
 compose up -d --force-recreate xray
-bash "${SCRIPT_DIR}/scripts/check-runtime.sh" "180"
+run_upgrade_helper "check-runtime.sh" "180"
 
 log "rebuilding panel and reverse proxy"
 compose up -d --build admin-web caddy
-bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
+run_upgrade_helper "wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
 
 cat <<EOF
 

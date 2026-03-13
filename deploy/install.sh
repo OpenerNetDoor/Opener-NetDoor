@@ -1,9 +1,9 @@
 #!/usr/bin/env bash
 set -euo pipefail
 
-SCRIPT_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
+INSTALL_DIR="$(cd "$(dirname "${BASH_SOURCE[0]}")" && pwd)"
 # shellcheck source=./scripts/lib.sh
-source "${SCRIPT_DIR}/scripts/lib.sh"
+source "${INSTALL_DIR}/scripts/lib.sh"
 
 DOMAIN=""
 LE_EMAIL=""
@@ -27,6 +27,15 @@ Options:
   --rotate-admin-secret      Regenerate admin access secret.
   -h, --help                 Show help.
 EOF
+}
+
+
+run_install_helper() {
+  local helper="$1"
+  shift || true
+  local helper_path="${INSTALL_DIR}/scripts/${helper}"
+  [[ -f "${helper_path}" ]] || die "missing deploy helper script: ${helper_path}"
+  bash "${helper_path}" "$@"
 }
 
 while [[ $# -gt 0 ]]; do
@@ -236,10 +245,10 @@ fi
 
 load_env_file
 
-bash "${SCRIPT_DIR}/scripts/generate-reality-keys.sh"
+run_install_helper "generate-reality-keys.sh"
 load_env_file
 
-bash "${SCRIPT_DIR}/scripts/render-caddyfile.sh"
+run_install_helper "render-caddyfile.sh"
 mkdir -p "${DEPLOY_DIR}/state/xray"
 
 if [[ ! -f "${DEPLOY_DIR}/state/xray/config.json" ]]; then
@@ -262,27 +271,27 @@ compose run --rm migrate
 
 log "starting control plane services (core-platform + api-gateway)"
 compose up -d --build core-platform api-gateway
-bash "${SCRIPT_DIR}/scripts/wait-control-plane.sh" "240"
+run_install_helper "wait-control-plane.sh" "240"
 
 owner_flags=(--print-url)
 if [[ "${ROTATE_ADMIN_SECRET}" == "true" ]]; then
   owner_flags+=(--rotate-secret)
 fi
-owner_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-owner.sh" "${owner_flags[@]}")"
+owner_info="$(run_install_helper "bootstrap-owner.sh" "${owner_flags[@]}")"
 owner_scope_id="$(echo "${owner_info}" | awk -F= '/^OWNER_SCOPE_ID=/{print $2}' | tail -n1)"
 admin_access_url="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL=/{print $2}' | tail -n1)"
 admin_access_url_file="$(echo "${owner_info}" | awk -F= '/^ADMIN_ACCESS_URL_FILE=/{print $2}' | tail -n1)"
 
-runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
+runtime_info="$(run_install_helper "bootstrap-runtime.sh")"
 runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
 
 log "starting xray runtime service"
 compose up -d --force-recreate xray
-bash "${SCRIPT_DIR}/scripts/check-runtime.sh" "180"
+run_install_helper "check-runtime.sh" "180"
 
 log "starting panel and reverse proxy"
 compose up -d --build admin-web caddy
-bash "${SCRIPT_DIR}/scripts/wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
+run_install_helper "wait-for-ready.sh" "${PUBLIC_BASE_URL}" "240"
 
 log "running post-bootstrap health checks"
 api_ready_status="failed"
