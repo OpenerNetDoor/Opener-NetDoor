@@ -133,6 +133,25 @@ func hasNodeCapability(node model.Node, capability string) bool {
 	return false
 }
 
+func shouldMarkBootstrapOnline(node model.Node, runtime model.NodeRuntime, actor model.ActorPrincipal, runtimePublicHost string) (bool, string) {
+	if strings.EqualFold(strings.TrimSpace(node.Status), "revoked") {
+		return false, "revoked_node"
+	}
+	if hasNodeCapability(node, "local.default.v1") {
+		return true, "capability_local_default"
+	}
+	if strings.EqualFold(strings.TrimSpace(node.Hostname), strings.TrimSpace(runtimePublicHost)) {
+		return true, "hostname_matches_runtime_public_host"
+	}
+	// bootstrap-runtime.sh calls internal runtime apply without actor subject.
+	// Keep this as fallback so single-server fresh installs cannot stay pending
+	// when local.default capability is missing on legacy/local rows.
+	if strings.TrimSpace(actor.Subject) == "" && strings.EqualFold(strings.TrimSpace(runtime.RuntimeBackend), "xray") {
+		return true, "internal_bootstrap_fallback"
+	}
+	return false, "not_local_bootstrap_target"
+}
+
 func buildVLESSRealityURI(node model.Node, runtime model.NodeRuntime, uuid string, keyID string) string {
 	host := strings.TrimSpace(node.Hostname)
 	if host == "" {
@@ -250,9 +269,18 @@ func (s *CoreService) ApplyNodeRuntimeConfig(ctx context.Context, actor model.Ac
 		return model.RuntimeConfigResponse{}, mapStoreError("runtime_apply_failed", err)
 	}
 
-	if hasNodeCapability(node, "local.default.v1") {
+	shouldMarkOnline, markReason := shouldMarkBootstrapOnline(node, runtime, actor, s.opts.RuntimePublicHost)
+	if shouldMarkOnline {
 		node, err = s.store.MarkNodeRuntimeOnline(ctx, in.TenantID, in.NodeID, node.ContractVersion, node.AgentVersion)
 		if err != nil {
+			if errors.Is(err, sql.ErrNoRows) {
+				return model.RuntimeConfigResponse{}, &AppError{
+					Status:  500,
+					Code:    "node_online_mark_failed",
+					Message: "local runtime node could not be marked online after successful runtime apply",
+					Err:     err,
+				}
+			}
 			return model.RuntimeConfigResponse{}, mapStoreError("runtime_apply_failed", err)
 		}
 		node.Status = s.deriveNodeStatus(node, time.Now().UTC())
@@ -265,6 +293,7 @@ func (s *CoreService) ApplyNodeRuntimeConfig(ctx context.Context, actor model.Ac
 			TargetID:   in.NodeID,
 			Metadata: map[string]any{
 				"source":           "runtime.apply",
+				"reason":           markReason,
 				"runtime_backend":  runtime.RuntimeBackend,
 				"runtime_protocol": runtime.RuntimeProtocol,
 				"listen_port":      runtime.ListenPort,
@@ -280,6 +309,25 @@ func (s *CoreService) ApplyNodeRuntimeConfig(ctx context.Context, actor model.Ac
 			Metadata: map[string]any{
 				"status": node.Status,
 				"source": "runtime.apply",
+				"reason": markReason,
+			},
+		})
+	} else {
+		s.auditBestEffort(ctx, model.AuditLogEvent{
+			TenantID:   in.TenantID,
+			ActorType:  "system",
+			ActorSub:   actor.Subject,
+			Action:     "node.bootstrap_online_skipped",
+			TargetType: "node",
+			TargetID:   in.NodeID,
+			Metadata: map[string]any{
+				"source":           "runtime.apply",
+				"reason":           markReason,
+				"runtime_backend":  runtime.RuntimeBackend,
+				"runtime_protocol": runtime.RuntimeProtocol,
+				"hostname":         node.Hostname,
+				"runtime_public":   s.opts.RuntimePublicHost,
+				"capabilities":     node.Capabilities,
 			},
 		})
 	}
