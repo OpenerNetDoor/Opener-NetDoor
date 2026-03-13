@@ -23,13 +23,23 @@ if [[ -z "${key_output}" ]]; then
   die "failed to generate xray reality keys using image ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}"
 fi
 
-private_key="$(printf '%s\n' "${key_output}" | awk -F': ' '/Private key:/{print $2}' | tr -d '\r' | tail -n1)"
-public_key="$(printf '%s\n' "${key_output}" | awk -F': ' '/Public key:/{print $2}' | tr -d '\r' | tail -n1)"
+private_key="$(printf '%s\n' "${key_output}" | awk -F': ' '/^(Private key|PrivateKey): /{print $2}' | tr -d '\r' | tail -n1)"
+public_key="$(printf '%s\n' "${key_output}" | awk -F': ' '/^(Public key|PublicKey): /{print $2}' | tr -d '\r' | tail -n1)"
+
+if [[ -z "${public_key}" ]]; then
+  public_key="$(printf '%s\n' "${key_output}" | awk -F': ' '/^Password: /{print $2}' | tr -d '\r' | tail -n1)"
+fi
 
 if [[ -z "${private_key}" || -z "${public_key}" ]]; then
+  {
+    echo "[opener-netdoor][error] unable to parse xray x25519 output"
+    echo "[opener-netdoor][error] raw xray x25519 output:"
+    printf '%s\n' "${key_output}"
+  } >&2
   die "unable to parse xray x25519 output"
 fi
 
 upsert_env "RUNTIME_REALITY_PRIVATE_KEY" "${private_key}"
 upsert_env "RUNTIME_REALITY_PUBLIC_KEY" "${public_key}"
 log "saved REALITY keypair to deploy/.env"
+
