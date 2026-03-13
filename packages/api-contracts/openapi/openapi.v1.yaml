@@ -1,7 +1,7 @@
 openapi: 3.1.0
 info:
   title: Opener NetDoor Public and Admin API
-  version: 1.11.0
+  version: 1.12.0
 servers:
   - url: https://api.example.com
 paths:
@@ -269,6 +269,40 @@ paths:
             application/json:
               schema:
                 $ref: '#/components/schemas/AccessKey'
+  /v1/admin/subscriptions/user:
+    get:
+      summary: Resolve aggregated user subscription
+      security:
+        - bearerAuth: [admin:read]
+      parameters:
+        - in: query
+          name: tenant_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: user_id
+          required: true
+          schema:
+            type: string
+            format: uuid
+        - in: query
+          name: format
+          required: false
+          schema:
+            type: string
+            enum: [plain, json]
+      responses:
+        '200':
+          description: Subscription payload
+          content:
+            application/json:
+              schema:
+                $ref: '#/components/schemas/UserSubscription'
+            text/plain:
+              schema:
+                type: string
   /v1/admin/policies/tenants:
     get:
       summary: List tenant policies or get one by tenant_id
@@ -819,6 +853,50 @@ components:
           type: string
           format: date-time
           nullable: true
+    SubscriptionConfig:
+      type: object
+      required: [server_id, hostname, region, protocol, label, uri]
+      properties:
+        server_id:
+          type: string
+          format: uuid
+        hostname:
+          type: string
+        region:
+          type: string
+        protocol:
+          type: string
+        label:
+          type: string
+        uri:
+          type: string
+    UserSubscription:
+      type: object
+      required: [tenant_id, user_id, generated_at, format, payload, config_count, configs]
+      properties:
+        tenant_id:
+          type: string
+          format: uuid
+        user_id:
+          type: string
+          format: uuid
+        generated_at:
+          type: string
+          format: date-time
+        format:
+          type: string
+          enum: [plain, json]
+        subscription_url:
+          type: string
+        payload:
+          type: string
+        config_count:
+          type: integer
+          minimum: 0
+        configs:
+          type: array
+          items:
+            $ref: '#/components/schemas/SubscriptionConfig'
     TenantPolicy:
       type: object
       required: [tenant_id, updated_at]
@@ -1401,3 +1479,7 @@ components:
         node_id:
           type: string
           format: uuid
+
+
+
+

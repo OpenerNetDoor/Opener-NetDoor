@@ -2,7 +2,7 @@
 
 import { useCallback, useEffect, useMemo, useState } from "react";
 import { Ban, Copy, KeyRound, Pencil, Plus, Trash2, Unlock } from "lucide-react";
-import type { AccessKey } from "@opener-netdoor/shared-types";
+import type { AccessKey, UserSubscription } from "@opener-netdoor/shared-types";
 import { AdminShell } from "../../components/admin-shell";
 import { RouteGuard } from "../../components/route-guard";
 import {
@@ -68,6 +68,9 @@ export default function UsersPage() {
   const [keyRevokingID, setKeyRevokingID] = useState("");
   const [createdKeyMaterial, setCreatedKeyMaterial] = useState<AccessKey | null>(null);
   const [copiedKeyId, setCopiedKeyId] = useState("");
+  const [subscriptionData, setSubscriptionData] = useState<UserSubscription | null>(null);
+  const [subscriptionLoading, setSubscriptionLoading] = useState(false);
+  const [subscriptionError, setSubscriptionError] = useState("");
 
   const [mutatingUserId, setMutatingUserId] = useState("");
 
@@ -111,6 +114,27 @@ export default function UsersPage() {
     [api, scopeId],
   );
 
+  const loadSubscriptionForUser = useCallback(
+    async (userId: string) => {
+      if (!scopeId) {
+        setSubscriptionError("Hidden owner scope is not available in session");
+        return;
+      }
+      setSubscriptionLoading(true);
+      try {
+        const result = await api.getUserSubscription(userId, scopeId, "json");
+        setSubscriptionData(result);
+        setSubscriptionError("");
+      } catch (err) {
+        setSubscriptionData(null);
+        setSubscriptionError(err instanceof Error ? err.message : "failed to load subscription");
+      } finally {
+        setSubscriptionLoading(false);
+      }
+    },
+    [api, scopeId],
+  );
+
   useEffect(() => {
     if (scopeId) {
       void loadUsers();
@@ -119,13 +143,20 @@ export default function UsersPage() {
 
   useEffect(() => {
     if (!selectedUser) {
+      setSelectedKeys([]);
+      setSubscriptionData(null);
+      setSubscriptionError("");
+      setCreatedKeyMaterial(null);
+      setCopiedKeyId("");
       return;
     }
     setSelectedKeys([]);
+    setSubscriptionData(null);
     setCreatedKeyMaterial(null);
     setCopiedKeyId("");
     void loadKeysForUser(selectedUser.id);
-  }, [loadKeysForUser, selectedUser]);
+    void loadSubscriptionForUser(selectedUser.id);
+  }, [loadKeysForUser, loadSubscriptionForUser, selectedUser]);
 
   const filteredRows = useMemo(() => {
     const query = search.trim().toLowerCase();
@@ -258,6 +289,7 @@ export default function UsersPage() {
       });
       setCreatedKeyMaterial(created);
       await loadKeysForUser(selectedUser.id);
+      await loadSubscriptionForUser(selectedUser.id);
       emitAdminDataChanged();
       setKeysError("");
     } catch (err) {
@@ -279,6 +311,7 @@ export default function UsersPage() {
       await api.revokeAccessKey(key.id, key.tenant_id);
       if (selectedUser) {
         await loadKeysForUser(selectedUser.id);
+      await loadSubscriptionForUser(selectedUser.id);
       }
       emitAdminDataChanged();
       setKeysError("");
@@ -524,6 +557,8 @@ export default function UsersPage() {
             setSelectedKeys([]);
             setCreatedKeyMaterial(null);
             setCopiedKeyId("");
+            setSubscriptionData(null);
+            setSubscriptionError("");
             setKeysError("");
           }}
         >
@@ -531,6 +566,46 @@ export default function UsersPage() {
             <div style={{ display: "grid", gap: 14 }}>
               {keysError ? <ErrorState message={keysError} /> : null}
 
+              {subscriptionError ? <ErrorState message={subscriptionError} /> : null}
+
+              <section className="nd-card" style={{ padding: 12 }}>
+                <div style={{ marginBottom: 8, fontWeight: 600 }}>Subscription URL</div>
+                {subscriptionLoading ? (
+                  <p style={{ color: "var(--nd-text-muted)", margin: 0 }}>Loading subscription...</p>
+                ) : subscriptionData ? (
+                  <>
+                    <div style={{ display: "flex", justifyContent: "space-between", alignItems: "center", gap: 8 }}>
+                      <code style={{ overflowWrap: "anywhere", display: "block", flex: 1 }}>{subscriptionData.subscription_url || "Not available"}</code>
+                      <button
+                        className="nd-icon-btn is-secondary"
+                        type="button"
+                        onClick={() => void onCopy("subscription-url", subscriptionData.subscription_url || "")}
+                        aria-label="Copy subscription URL"
+                        disabled={!subscriptionData.subscription_url}
+                      >
+                        <Copy size={15} />
+                      </button>
+                    </div>
+                    {copiedKeyId === "subscription-url" ? (
+                      <span style={{ marginTop: 6, display: "inline-block", color: "var(--nd-success)", fontSize: 12 }}>Copied</span>
+                    ) : null}
+                    <small style={{ color: "var(--nd-text-muted)", display: "block", marginTop: 8 }}>
+                      Aggregated configs: {subscriptionData.config_count}
+                    </small>
+                    {subscriptionData.configs.length > 0 ? (
+                      <ul style={{ margin: "8px 0 0", paddingLeft: 18, color: "var(--nd-text-secondary)", display: "grid", gap: 4 }}>
+                        {subscriptionData.configs.map((cfg) => (
+                          <li key={`${cfg.label}-${cfg.uri}`}>{cfg.label}</li>
+                        ))}
+                      </ul>
+                    ) : (
+                      <p style={{ color: "var(--nd-text-muted)", margin: "8px 0 0" }}>No active configs yet.</p>
+                    )}
+                  </>
+                ) : (
+                  <p style={{ color: "var(--nd-text-muted)", margin: 0 }}>No subscription data.</p>
+                )}
+              </section>
               <section className="nd-card" style={{ padding: 14 }}>
                 <div style={{ marginBottom: 8, fontWeight: 600 }}>Generate New Key</div>
                 <div style={{ display: "flex", gap: 8, flexWrap: "wrap" }}>
@@ -623,6 +698,16 @@ export default function UsersPage() {
     </RouteGuard>
   );
 }
+
+
+
+
+
+
+
+
+
+
 
 
 

@@ -33,7 +33,7 @@ if [[ -z "${OWNER_SCOPE_ID:-}" ]]; then
   upsert_env "OWNER_SCOPE_ID" "${OWNER_SCOPE_ID}"
 fi
 if [[ -z "${OWNER_SCOPE_NAME:-}" ]]; then
-  OWNER_SCOPE_NAME="Default Owner Scope"
+  OWNER_SCOPE_NAME="Default_Owner_Scope"
   upsert_env "OWNER_SCOPE_NAME" "${OWNER_SCOPE_NAME}"
 fi
 if [[ -z "${OWNER_SUBJECT:-}" ]]; then

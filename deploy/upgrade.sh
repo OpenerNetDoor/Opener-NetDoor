@@ -59,7 +59,8 @@ runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
 runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
 
 log "restarting xray runtime service"
-compose up -d xray
+compose up -d --force-recreate xray
+bash "${SCRIPT_DIR}/scripts/check-runtime.sh" "180"
 
 log "rebuilding panel and reverse proxy"
 compose up -d --build admin-web caddy
@@ -72,8 +73,8 @@ Panel URL: ${PUBLIC_BASE_URL}
 Admin access URL: ${admin_access_url}
 HTTPS enabled: ${HTTPS_ENABLED}
 Runtime node: ${runtime_node_id}
+Subscription URL template: ${PUBLIC_BASE_URL}/${SUBSCRIPTION_ACCESS_SECRET}/<USER_UUID>/#<USERNAME>
 
 EOF
 
 print_compose_hint
-

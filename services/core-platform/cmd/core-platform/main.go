@@ -58,6 +58,8 @@ func main() {
 		RuntimeRealityPublicKey:  cfg.RuntimeRealityPublicKey,
 		RuntimeRealityShortID:    cfg.RuntimeRealityShortID,
 		RuntimeRealityServerName: cfg.RuntimeRealityServerName,
+		PublicBaseURL:            cfg.PublicBaseURL,
+		SubscriptionAccessSecret: cfg.SubscriptionAccessSecret,
 	})
 
 	runtimeCtx, runtimeCancel := context.WithCancel(context.Background())

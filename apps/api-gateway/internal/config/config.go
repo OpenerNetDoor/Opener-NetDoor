@@ -9,34 +9,38 @@ import (
 )
 
 type Config struct {
-	HTTPAddr            string
-	CorePlatformBaseURL string
-	JWTIssuer           string
-	JWTAudience         string
-	JWTSecret           string
-	SessionCookieName   string
-	SessionTTL          time.Duration
-	SessionSecret       string
-	SessionSecure       bool
-	AdminMagicSecret    string
-	OwnerScopeID        string
-	OwnerSubject        string
+	HTTPAddr                string
+	CorePlatformBaseURL     string
+	JWTIssuer               string
+	JWTAudience             string
+	JWTSecret               string
+	SessionCookieName       string
+	SessionTTL              time.Duration
+	SessionSecret           string
+	SessionSecure           bool
+	AdminMagicSecret        string
+	SubscriptionAccessSecret string
+	OwnerScopeID            string
+	OwnerSubject            string
+	PublicBaseURL           string
 }
 
 func Load() Config {
 	return Config{
-		HTTPAddr:            getenv("HTTP_ADDR", ":8080"),
-		CorePlatformBaseURL: getenv("CORE_PLATFORM_BASE_URL", "http://127.0.0.1:8081"),
-		JWTIssuer:           getenv("JWT_ISSUER", "opener-netdoor"),
-		JWTAudience:         getenv("JWT_AUDIENCE", "opener-netdoor-api"),
-		JWTSecret:           getenv("JWT_SECRET", "dev-secret-change-me"),
-		SessionCookieName:   getenv("SESSION_COOKIE_NAME", "opener_netdoor_session"),
-		SessionTTL:          parseDuration(getenv("SESSION_TTL", "168h"), 168*time.Hour),
-		SessionSecret:       getenv("SESSION_SECRET", getenv("JWT_SECRET", "dev-secret-change-me")),
-		SessionSecure:       parseBool(getenv("SESSION_SECURE", "false"), false),
-		AdminMagicSecret:    strings.TrimSpace(getenv("ADMIN_ACCESS_SECRET", "")),
-		OwnerScopeID:        strings.TrimSpace(getenv("OWNER_SCOPE_ID", "")),
-		OwnerSubject:        strings.TrimSpace(getenv("OWNER_SUBJECT", "owner")),
+		HTTPAddr:                getenv("HTTP_ADDR", ":8080"),
+		CorePlatformBaseURL:     getenv("CORE_PLATFORM_BASE_URL", "http://127.0.0.1:8081"),
+		JWTIssuer:               getenv("JWT_ISSUER", "opener-netdoor"),
+		JWTAudience:             getenv("JWT_AUDIENCE", "opener-netdoor-api"),
+		JWTSecret:               getenv("JWT_SECRET", "dev-secret-change-me"),
+		SessionCookieName:       getenv("SESSION_COOKIE_NAME", "opener_netdoor_session"),
+		SessionTTL:              parseDuration(getenv("SESSION_TTL", "168h"), 168*time.Hour),
+		SessionSecret:           getenv("SESSION_SECRET", getenv("JWT_SECRET", "dev-secret-change-me")),
+		SessionSecure:           parseBool(getenv("SESSION_SECURE", "false"), false),
+		AdminMagicSecret:        strings.TrimSpace(getenv("ADMIN_ACCESS_SECRET", "")),
+		SubscriptionAccessSecret: strings.TrimSpace(getenv("SUBSCRIPTION_ACCESS_SECRET", "")),
+		OwnerScopeID:            strings.TrimSpace(getenv("OWNER_SCOPE_ID", "")),
+		OwnerSubject:            strings.TrimSpace(getenv("OWNER_SUBJECT", "owner")),
+		PublicBaseURL:           strings.TrimSpace(getenv("PUBLIC_BASE_URL", "")),
 	}
 }
 
@@ -62,8 +66,14 @@ func (c Config) Validate() error {
 	if c.AdminMagicSecret == "" {
 		return errors.New("ADMIN_ACCESS_SECRET is required")
 	}
+	if c.SubscriptionAccessSecret == "" {
+		return errors.New("SUBSCRIPTION_ACCESS_SECRET is required")
+	}
 	if c.OwnerScopeID == "" {
 		return errors.New("OWNER_SCOPE_ID is required")
+	}
+	if c.PublicBaseURL == "" {
+		return errors.New("PUBLIC_BASE_URL is required")
 	}
 	return nil
 }

@@ -102,6 +102,30 @@ func (h *Handler) AccessKeys(w http.ResponseWriter, r *http.Request) {
 	}
 }
 
+func (h *Handler) UserSubscription(w http.ResponseWriter, r *http.Request) {
+	if r.Method != http.MethodGet {
+		response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+		return
+	}
+	actor := actorFromHeaders(r)
+	item, err := h.svc.GetUserSubscription(r.Context(), actor, model.GetUserSubscriptionQuery{
+		TenantID: r.URL.Query().Get("tenant_id"),
+		UserID:   r.URL.Query().Get("user_id"),
+		Format:   r.URL.Query().Get("format"),
+	})
+	if err != nil {
+		status, code, message := service.ToResponse(err, "subscription_resolve_failed", "failed to resolve user subscription")
+		response.Error(w, r, status, code, message)
+		return
+	}
+	if item.Format == "plain" {
+		w.Header().Set("Content-Type", "text/plain; charset=utf-8")
+		w.WriteHeader(http.StatusOK)
+		_, _ = w.Write([]byte(item.Payload))
+		return
+	}
+	response.JSON(w, http.StatusOK, item)
+}
 func (h *Handler) TenantPolicies(w http.ResponseWriter, r *http.Request) {
 	switch r.Method {
 	case http.MethodGet:
@@ -915,3 +939,4 @@ func parseTimeQuery(raw string) (*time.Time, error) {
 	parsed = parsed.UTC()
 	return &parsed, nil
 }
+

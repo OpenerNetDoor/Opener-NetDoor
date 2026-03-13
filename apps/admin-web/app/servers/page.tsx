@@ -246,16 +246,17 @@ export default function ServersPage() {
                       <small>{row.hostname}</small>
                     </div>
                   </div>
-                  <StatusBadge value={row.status === "active" ? "Online" : row.status} />
+                  <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                    {row.isDefaultServer ? <StatusBadge value="Default" /> : null}
+                    <StatusBadge value={row.status === "active" ? "Online" : row.status} />
+                  </div>
                 </header>
-
-                <div className="nd-server-metrics">
-                  <span style={{ color: "var(--nd-text-secondary)" }}>Status telemetry is not exposed as load percentages yet.</span>
-                </div>
 
                 <div className="row" style={{ justifyContent: "space-between", margin: 0 }}>
                   <span style={{ color: "var(--nd-text-secondary)" }}>Region: {row.region}</span>
-                  <span style={{ color: "var(--nd-text-secondary)" }}>Load: No data</span>
+                  <span style={{ color: "var(--nd-text-secondary)" }}>
+                    Protocols: {row.enabledProtocols.length > 0 ? row.enabledProtocols.join(", ") : "No data"}
+                  </span>
                 </div>
 
                 <div className="row" style={{ justifyContent: "space-between", margin: 0 }}>
@@ -264,11 +265,11 @@ export default function ServersPage() {
                 </div>
 
                 <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                  {row.capabilities.length === 0 ? (
-                    <ProtocolChip label="No capabilities" />
-                  ) : (
-                    row.capabilities.map((capability) => <ProtocolChip key={capability} label={capability} />)
-                  )}
+                  {row.enabledProtocols.length > 0
+                    ? row.enabledProtocols.map((protocol) => <ProtocolChip key={protocol} label={protocol} />)
+                    : row.capabilities.length === 0
+                      ? <ProtocolChip label="No capabilities" />
+                      : row.capabilities.map((capability) => <ProtocolChip key={capability} label={capability} />)}
                 </div>
 
                 <footer className="nd-server-actions">
@@ -325,15 +326,17 @@ export default function ServersPage() {
               <p>
                 <strong>{detail.serverName}</strong> · {detail.region}
               </p>
-              <StatusBadge value={detail.status} />
-              <p style={{ color: "var(--nd-text-secondary)" }}>Load telemetry: No data</p>
+              <div style={{ display: "flex", gap: 8, alignItems: "center" }}>
+                {detail.isDefaultServer ? <StatusBadge value="Default" /> : null}
+                <StatusBadge value={detail.status} />
+              </div>
               <p>Last seen: {detail.lastSeen}</p>
               <p>Last heartbeat: {detail.heartbeat}</p>
 
               <div style={{ display: "flex", flexWrap: "wrap", gap: 6 }}>
-                {detail.capabilities.map((capability) => (
-                  <ProtocolChip key={capability} label={capability} />
-                ))}
+                {detail.enabledProtocols.length > 0
+                  ? detail.enabledProtocols.map((protocol) => <ProtocolChip key={protocol} label={protocol} />)
+                  : detail.capabilities.map((capability) => <ProtocolChip key={capability} label={capability} />)}
               </div>
 
               <hr style={{ borderColor: "var(--nd-border-soft)", width: "100%" }} />
@@ -445,5 +448,7 @@ export default function ServersPage() {
     </RouteGuard>
   );
 }
+
+
 
 

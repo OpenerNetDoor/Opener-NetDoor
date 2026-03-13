@@ -38,6 +38,7 @@ import type {
   TenantPolicyListResponse,
   User,
   UserLifecycleRequest,
+  UserSubscription,
   UserListResponse,
   UserPolicyOverride,
   UserPolicyOverrideListResponse,
@@ -224,6 +225,14 @@ export class OpenerNetDoorClient {
     return this.request<AccessKey>("DELETE", "/v1/admin/access-keys", {
       id,
       tenant_id: tenantId ?? this.tenantId,
+    });
+  }
+
+  getUserSubscription(userId: string, tenantId?: string, format: "plain" | "json" = "json"): Promise<UserSubscription> {
+    return this.request<UserSubscription>("GET", "/v1/admin/subscriptions/user", {
+      user_id: userId,
+      tenant_id: tenantId ?? this.tenantId,
+      format,
     });
   }
 
@@ -488,6 +497,8 @@ function normalizePolicyList(input: TenantPolicy | TenantPolicyListResponse): Te
 }
 
 export * from "./server_ops_adapter";
+
+
 
 
 

@@ -77,6 +77,8 @@ services:
       RUNTIME_REALITY_PUBLIC_KEY: ${RUNTIME_REALITY_PUBLIC_KEY}
       RUNTIME_REALITY_SHORT_ID: ${RUNTIME_REALITY_SHORT_ID}
       RUNTIME_REALITY_SERVER_NAME: ${RUNTIME_REALITY_SERVER_NAME}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
+      SUBSCRIPTION_ACCESS_SECRET: ${SUBSCRIPTION_ACCESS_SECRET}
     depends_on:
       postgres:
         condition: service_healthy
@@ -105,8 +107,10 @@ services:
       SESSION_SECRET: ${SESSION_SECRET}
       SESSION_SECURE: ${SESSION_SECURE}
       ADMIN_ACCESS_SECRET: ${ADMIN_ACCESS_SECRET}
+      SUBSCRIPTION_ACCESS_SECRET: ${SUBSCRIPTION_ACCESS_SECRET}
       OWNER_SCOPE_ID: ${OWNER_SCOPE_ID}
       OWNER_SUBJECT: ${OWNER_SUBJECT}
+      PUBLIC_BASE_URL: ${PUBLIC_BASE_URL}
     depends_on:
       core-platform:
         condition: service_started
@@ -134,13 +138,16 @@ services:
       - backend
 
   xray:
-    image: ${XRAY_IMAGE}
+    image: ${XRAY_IMAGE:-ghcr.io/xtls/xray-core:latest}
     restart: unless-stopped
     command: ["run", "-c", "/etc/xray/config.json"]
     volumes:
       - ./state/xray/config.json:/etc/xray/config.json:ro
     ports:
       - "${RUNTIME_VLESS_PORT:-8443}:${RUNTIME_VLESS_PORT:-8443}"
+    dns:
+      - "${XRAY_DNS_PRIMARY:-1.1.1.1}"
+      - "${XRAY_DNS_SECONDARY:-8.8.8.8}"
     depends_on:
       core-platform:
         condition: service_started
@@ -175,5 +182,3 @@ networks:
   public:
   backend:
     internal: true
-
-

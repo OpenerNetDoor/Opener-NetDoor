@@ -115,6 +115,21 @@ func (f fakeService) RevokeAccessKey(_ context.Context, actor model.ActorPrincip
 	}, nil
 }
 
+func (f fakeService) GetUserSubscription(_ context.Context, actor model.ActorPrincipal, q model.GetUserSubscriptionQuery) (model.UserSubscription, error) {
+	if !actor.CanAccessTenant(q.TenantID) {
+		return model.UserSubscription{}, &service.AppError{Status: 403, Code: "forbidden", Message: "actor cannot access requested tenant"}
+	}
+	return model.UserSubscription{
+		TenantID:        q.TenantID,
+		UserID:          q.UserID,
+		GeneratedAt:     time.Now(),
+		Format:          "json",
+		SubscriptionURL: "https://panel.example.com/secret/" + q.UserID + "/#user",
+		Payload:         "[]",
+		ConfigCount:     0,
+		Configs:         []model.SubscriptionConfig{},
+	}, nil
+}
 func (f fakeService) ListTenantPolicies(_ context.Context, actor model.ActorPrincipal, q model.ListTenantPoliciesQuery) ([]model.TenantPolicy, error) {
 	if q.TenantID != "" && !actor.CanAccessTenant(q.TenantID) {
 		return nil, &service.AppError{Status: 403, Code: "forbidden", Message: "actor cannot access requested tenant"}
@@ -658,3 +673,4 @@ func TestOpsAnalyticsEndpoint(t *testing.T) {
 		t.Fatalf("expected %d, got %d body=%s", http.StatusOK, rr.Code, rr.Body.String())
 	}
 }
+

@@ -44,6 +44,12 @@ type ListAccessKeysQuery struct {
 	UserID   string `json:"user_id,omitempty"`
 }
 
+type GetUserSubscriptionQuery struct {
+	TenantID string `json:"tenant_id"`
+	UserID   string `json:"user_id"`
+	Format   string `json:"format,omitempty"`
+}
+
 type ListTenantPoliciesQuery struct {
 	ListQuery
 	TenantID string `json:"tenant_id,omitempty"`
@@ -121,6 +127,26 @@ type AccessKey struct {
 	Status        string     `json:"status"`
 	ExpiresAt     *time.Time `json:"expires_at,omitempty"`
 	CreatedAt     time.Time  `json:"created_at"`
+}
+
+type SubscriptionConfig struct {
+	ServerID string `json:"server_id"`
+	Hostname string `json:"hostname"`
+	Region   string `json:"region"`
+	Protocol string `json:"protocol"`
+	Label    string `json:"label"`
+	URI      string `json:"uri"`
+}
+
+type UserSubscription struct {
+	TenantID        string               `json:"tenant_id"`
+	UserID          string               `json:"user_id"`
+	GeneratedAt     time.Time            `json:"generated_at"`
+	Format          string               `json:"format"`
+	SubscriptionURL string               `json:"subscription_url,omitempty"`
+	Payload         string               `json:"payload"`
+	ConfigCount     int                  `json:"config_count"`
+	Configs         []SubscriptionConfig `json:"configs"`
 }
 
 type Device struct {
@@ -519,6 +545,7 @@ type AuditLogEvent struct {
 	Metadata   map[string]any `json:"metadata,omitempty"`
 	OccurredAt time.Time      `json:"occurred_at,omitempty"`
 }
+
 
 
 

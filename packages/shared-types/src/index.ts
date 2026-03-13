@@ -85,6 +85,25 @@ export interface CreateAccessKeyRequest {
   secret_ref?: string;
   expires_at?: string;
 }
+export interface SubscriptionConfig {
+  server_id: string;
+  hostname: string;
+  region: string;
+  protocol: string;
+  label: string;
+  uri: string;
+}
+
+export interface UserSubscription {
+  tenant_id: string;
+  user_id: string;
+  generated_at: string;
+  format: "plain" | "json" | string;
+  subscription_url?: string;
+  payload: string;
+  config_count: number;
+  configs: SubscriptionConfig[];
+}
 
 export interface TenantPolicy {
   tenant_id: string;
@@ -746,6 +765,9 @@ export interface AdminSessionInfo {
   scopes: Scope[];
   expires_at: string;
 }
+
+
+
 
 
 

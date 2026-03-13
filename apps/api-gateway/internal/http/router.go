@@ -129,6 +129,35 @@ func NewHandler(cfg config.Config) (http.Handler, error) {
 		methodScope(),
 	))
 
+	mux.Handle("/v1/admin/subscriptions/user", chain(
+		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
+			if r.Method != http.MethodGet {
+				response.Error(w, r, http.StatusMethodNotAllowed, "method_not_allowed", "unsupported method")
+				return
+			}
+			p, _ := middleware.GetPrincipal(r.Context())
+			tenantID := r.URL.Query().Get("tenant_id")
+			forwardReq := r
+			if p.TenantID != "" && !p.IsPlatformAdmin() && tenantID == "" {
+				q := r.URL.Query()
+				q.Set("tenant_id", p.TenantID)
+				cloned := r.Clone(r.Context())
+				u := *r.URL
+				u.RawQuery = q.Encode()
+				cloned.URL = &u
+				forwardReq = cloned
+				tenantID = p.TenantID
+			}
+			if !p.CanAccessTenant(tenantID) {
+				response.Error(w, r, http.StatusForbidden, "forbidden", "actor cannot access requested tenant")
+				return
+			}
+			px.Forward(w, forwardReq, "/internal/v1/subscriptions/user", p.Subject, p.Scopes, p.TenantID)
+		}),
+		authn,
+		methodScope(),
+	))
+
 	mux.Handle("/v1/admin/policies/tenants", chain(
 		http.HandlerFunc(func(w http.ResponseWriter, r *http.Request) {
 			p, _ := middleware.GetPrincipal(r.Context())
@@ -754,3 +783,4 @@ func requestedTenantFromBody(r *http.Request) (string, error) {
 	}
 	return in.TenantID, nil
 }
+

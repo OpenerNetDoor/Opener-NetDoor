@@ -59,6 +59,8 @@ type Options struct {
 	RuntimeRealityPublicKey  string
 	RuntimeRealityShortID    string
 	RuntimeRealityServerName string
+	PublicBaseURL            string
+	SubscriptionAccessSecret string
 }
 
 func (o Options) withDefaults() Options {
@@ -119,6 +121,12 @@ func (o Options) withDefaults() Options {
 	if strings.TrimSpace(o.RuntimeRealityServerName) == "" {
 		o.RuntimeRealityServerName = "www.cloudflare.com"
 	}
+	if strings.TrimSpace(o.PublicBaseURL) == "" {
+		o.PublicBaseURL = "http://127.0.0.1"
+	}
+	if strings.TrimSpace(o.SubscriptionAccessSecret) == "" {
+		o.SubscriptionAccessSecret = "change_me_subscription_secret"
+	}
 	if strings.TrimSpace(o.RuntimeRealityPublicKey) != "" {
 		o.RuntimeEnabled = true
 	}
@@ -169,6 +177,7 @@ type Service interface {
 	ListAuditLogs(ctx context.Context, actor model.ActorPrincipal, q model.ListAuditLogsQuery) ([]model.AuditLogRecord, error)
 	GetOpsSnapshot(ctx context.Context, actor model.ActorPrincipal, tenantID string) (model.OpsSnapshot, error)
 	GetOpsAnalytics(ctx context.Context, actor model.ActorPrincipal, tenantID string) (model.OpsAnalytics, error)
+	GetUserSubscription(ctx context.Context, actor model.ActorPrincipal, q model.GetUserSubscriptionQuery) (model.UserSubscription, error)
 }
 
 type CoreService struct {
@@ -1221,3 +1230,6 @@ func secureCompareSignature(got, want string) bool {
 	}
 	return hmac.Equal([]byte(got), []byte(want))
 }
+
+
+

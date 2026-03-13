@@ -25,14 +25,37 @@ require_cmd() {
   command -v "$1" >/dev/null 2>&1 || die "required command not found: $1"
 }
 
+sanitize_env_file() {
+  [[ -f "${ENV_FILE}" ]] || return 0
+  local tmp
+  tmp="$(mktemp)"
+  while IFS= read -r line || [[ -n "${line}" ]]; do
+    if [[ "${line}" == OWNER_SCOPE_NAME=* ]]; then
+      local value
+      value="${line#OWNER_SCOPE_NAME=}"
+      value="${value%\"}"
+      value="${value#\"}"
+      value="${value%\'}"
+      value="${value#\'}"
+      value="${value// /_}"
+      printf 'OWNER_SCOPE_NAME=%s\n' "${value}" >>"${tmp}"
+    else
+      printf '%s\n' "${line}" >>"${tmp}"
+    fi
+  done <"${ENV_FILE}"
+  mv "${tmp}" "${ENV_FILE}"
+}
+
 ensure_env_file() {
   if [[ ! -f "${ENV_FILE}" ]]; then
     cp "${ENV_TEMPLATE}" "${ENV_FILE}"
     log "created ${ENV_FILE} from template"
   fi
+  sanitize_env_file
 }
 
 load_env_file() {
+  sanitize_env_file
   set -a
   # shellcheck disable=SC1090
   source "${ENV_FILE}"
@@ -42,6 +65,9 @@ load_env_file() {
 upsert_env() {
   local key="$1"
   local value="$2"
+  if [[ "${key}" == "OWNER_SCOPE_NAME" ]]; then
+    value="${value// /_}"
+  fi
   if grep -q "^${key}=" "${ENV_FILE}"; then
     local escaped
     escaped="$(printf '%s' "${value}" | sed -e 's/[\\/&]/\\\\&/g')"

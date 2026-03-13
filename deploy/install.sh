@@ -157,7 +157,7 @@ if [[ -z "${OWNER_EMAIL:-}" ]]; then
   upsert_env "OWNER_EMAIL" "owner@example.com"
 fi
 if [[ -z "${OWNER_SCOPE_NAME:-}" ]]; then
-  upsert_env "OWNER_SCOPE_NAME" "Default Owner Scope"
+  upsert_env "OWNER_SCOPE_NAME" "Default_Owner_Scope"
 fi
 if [[ -z "${SESSION_COOKIE_NAME:-}" ]]; then
   upsert_env "SESSION_COOKIE_NAME" "opener_netdoor_session"
@@ -167,6 +167,9 @@ if [[ -z "${SESSION_TTL:-}" ]]; then
 fi
 if [[ -z "${ADMIN_ACCESS_SECRET:-}" || "${ADMIN_ACCESS_SECRET}" == change_me* ]]; then
   upsert_env "ADMIN_ACCESS_SECRET" "$(random_hex 24)"
+fi
+if [[ -z "${SUBSCRIPTION_ACCESS_SECRET:-}" || "${SUBSCRIPTION_ACCESS_SECRET}" == change_me* ]]; then
+  upsert_env "SUBSCRIPTION_ACCESS_SECRET" "$(random_hex 24)"
 fi
 if [[ -z "${ADMIN_ACCESS_URL_FILE:-}" ]]; then
   upsert_env "ADMIN_ACCESS_URL_FILE" "./state/admin-access-url.txt"
@@ -185,6 +188,12 @@ if [[ -z "${RUNTIME_REALITY_SHORT_ID:-}" ]]; then
 fi
 if [[ -z "${RUNTIME_REALITY_SERVER_NAME:-}" ]]; then
   upsert_env "RUNTIME_REALITY_SERVER_NAME" "www.cloudflare.com"
+fi
+if [[ -z "${XRAY_DNS_PRIMARY:-}" ]]; then
+  upsert_env "XRAY_DNS_PRIMARY" "1.1.1.1"
+fi
+if [[ -z "${XRAY_DNS_SECONDARY:-}" ]]; then
+  upsert_env "XRAY_DNS_SECONDARY" "8.8.8.8"
 fi
 
 load_env_file
@@ -268,7 +277,8 @@ runtime_info="$(bash "${SCRIPT_DIR}/scripts/bootstrap-runtime.sh")"
 runtime_node_id="$(echo "${runtime_info}" | awk -F= '/^RUNTIME_NODE_ID=/{print $2}' | tail -n1)"
 
 log "starting xray runtime service"
-compose up -d xray
+compose up -d --force-recreate xray
+bash "${SCRIPT_DIR}/scripts/check-runtime.sh" "180"
 
 log "starting panel and reverse proxy"
 compose up -d --build admin-web caddy
@@ -287,6 +297,10 @@ runtime_status="failed"
 if compose ps xray 2>/dev/null | grep -qi "running"; then
   runtime_status="running"
 fi
+runtime_port_status="closed"
+if timeout 2 bash -c "</dev/tcp/127.0.0.1/${RUNTIME_VLESS_PORT}" >/dev/null 2>&1; then
+  runtime_port_status="open"
+fi
 
 compose_ps="$(compose ps --format json 2>/dev/null || true)"
 
@@ -302,6 +316,7 @@ Hidden owner scope: ${owner_scope_id}
 Runtime:
   - Node ID: ${runtime_node_id}
   - Xray service: ${runtime_status}
+  - Xray port ${RUNTIME_VLESS_PORT}: ${runtime_port_status}
 
 Service summary:
   - API readiness: ${api_ready_status}
@@ -313,6 +328,9 @@ ${compose_ps}
 Sensitive files:
   - ${admin_access_url_file}
 
+Subscription URL template:
+  - ${PUBLIC_BASE_URL}/${SUBSCRIPTION_ACCESS_SECRET}/<USER_UUID>/#<USERNAME>
+
 Config files:
   - deploy/.env
   - deploy/Caddyfile
@@ -320,4 +338,3 @@ Config files:
 EOF
 
 print_compose_hint
-

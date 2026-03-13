@@ -13,6 +13,8 @@ type Config struct {
 	DatabaseURL              string
 	RedisAddr                string
 	NATSURL                  string
+	PublicBaseURL            string
+	SubscriptionAccessSecret string
 	NodeSigningSecret        string
 	NodeContractVersion      string
 	NodePKIMode              string
@@ -40,6 +42,8 @@ func Load() Config {
 		DatabaseURL:              getenv("DATABASE_URL", "postgresql://openernetdoor:openernetdoor@127.0.0.1:5432/openernetdoor?sslmode=disable"),
 		RedisAddr:                getenv("REDIS_ADDR", "127.0.0.1:6379"),
 		NATSURL:                  getenv("NATS_URL", "nats://127.0.0.1:4222"),
+		PublicBaseURL:            strings.TrimSpace(getenv("PUBLIC_BASE_URL", "")),
+		SubscriptionAccessSecret: strings.TrimSpace(getenv("SUBSCRIPTION_ACCESS_SECRET", "")),
 		NodeSigningSecret:        getenv("NODE_SIGNING_SECRET", "opener-netdoor-stage5-dev-signing-secret"),
 		NodeContractVersion:      getenv("NODE_CONTRACT_VERSION", "2026-03-10.stage5.v1"),
 		NodePKIMode:              strings.ToLower(getenv("NODE_PKI_MODE", "strict")),
@@ -74,6 +78,12 @@ func (c Config) Validate() error {
 	}
 	if c.NATSURL == "" {
 		return errors.New("NATS_URL is required")
+	}
+	if c.PublicBaseURL == "" {
+		return errors.New("PUBLIC_BASE_URL is required")
+	}
+	if c.SubscriptionAccessSecret == "" {
+		return errors.New("SUBSCRIPTION_ACCESS_SECRET is required")
 	}
 	if len(c.NodeSigningSecret) < 16 {
 		return errors.New("NODE_SIGNING_SECRET must be at least 16 characters")

@@ -32,6 +32,7 @@ func NewHandlerWithService(svc service.Service) http.Handler {
 	mux.HandleFunc("/internal/v1/users/block", h.UsersBlock)
 	mux.HandleFunc("/internal/v1/users/unblock", h.UsersUnblock)
 	mux.HandleFunc("/internal/v1/access-keys", h.AccessKeys)
+	mux.HandleFunc("/internal/v1/subscriptions/user", h.UserSubscription)
 	mux.HandleFunc("/internal/v1/policies/tenants", h.TenantPolicies)
 	mux.HandleFunc("/internal/v1/policies/users", h.UserPolicies)
 	mux.HandleFunc("/internal/v1/policies/effective", h.EffectivePolicy)
