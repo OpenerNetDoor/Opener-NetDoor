@@ -74,6 +74,7 @@ type Store interface {
 	GetNodeByKey(ctx context.Context, tenantID string, nodeKeyID string) (model.Node, error)
 	UpsertNodeRegistration(ctx context.Context, in model.RegisterNodeRequest, identityFingerprint string) (model.Node, error)
 	TouchNodeHeartbeat(ctx context.Context, in model.NodeHeartbeatRequest) (model.Node, error)
+	MarkNodeRuntimeOnline(ctx context.Context, tenantID string, nodeID string, contractVersion string, agentVersion string) (model.Node, error)
 	RevokeNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error)
 	ReactivateNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error)
 	ConsumeNodeNonce(ctx context.Context, in model.ConsumeNodeNonceRequest) error
@@ -811,6 +812,34 @@ func (s *SQLStore) TouchNodeHeartbeat(ctx context.Context, in model.NodeHeartbea
 	return item, nil
 }
 
+func (s *SQLStore) MarkNodeRuntimeOnline(ctx context.Context, tenantID string, nodeID string, contractVersion string, agentVersion string) (model.Node, error) {
+	row := s.db.QueryRowContext(
+		ctx,
+		`UPDATE nodes
+		 SET last_heartbeat_at = NOW(),
+		     last_seen_at = NOW(),
+		     status = 'active',
+		     contract_version = CASE WHEN $3 = '' THEN contract_version ELSE $3 END,
+		     agent_version = CASE WHEN $4 = '' THEN agent_version ELSE $4 END
+		 WHERE tenant_id = $1
+		   AND id = $2
+		   AND status <> 'revoked'
+		 RETURNING id::text, tenant_id::text, region, hostname, node_key_id, node_public_key, contract_version, agent_version,
+		           capabilities, identity_fingerprint, status, last_seen_at, last_heartbeat_at, created_at`,
+		tenantID,
+		nodeID,
+		strings.TrimSpace(contractVersion),
+		strings.TrimSpace(agentVersion),
+	)
+	item, err := scanNode(row.Scan)
+	if err != nil {
+		if errors.Is(err, sql.ErrNoRows) {
+			return model.Node{}, sql.ErrNoRows
+		}
+		return model.Node{}, mapDBError(err)
+	}
+	return item, nil
+}
 func (s *SQLStore) RevokeNode(ctx context.Context, tenantID string, nodeID string) (model.Node, error) {
 	row := s.db.QueryRowContext(
 		ctx,

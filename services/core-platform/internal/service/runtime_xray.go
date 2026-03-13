@@ -124,6 +124,15 @@ func statusPriority(status string) int {
 	}
 }
 
+func hasNodeCapability(node model.Node, capability string) bool {
+	for _, item := range node.Capabilities {
+		if strings.EqualFold(strings.TrimSpace(item), strings.TrimSpace(capability)) {
+			return true
+		}
+	}
+	return false
+}
+
 func buildVLESSRealityURI(node model.Node, runtime model.NodeRuntime, uuid string, keyID string) string {
 	host := strings.TrimSpace(node.Hostname)
 	if host == "" {
@@ -239,6 +248,40 @@ func (s *CoreService) ApplyNodeRuntimeConfig(ctx context.Context, actor model.Ac
 	runtime, err := rs.GetNodeRuntime(ctx, in.TenantID, in.NodeID)
 	if err != nil {
 		return model.RuntimeConfigResponse{}, mapStoreError("runtime_apply_failed", err)
+	}
+
+	if hasNodeCapability(node, "local.default.v1") {
+		node, err = s.store.MarkNodeRuntimeOnline(ctx, in.TenantID, in.NodeID, node.ContractVersion, node.AgentVersion)
+		if err != nil {
+			return model.RuntimeConfigResponse{}, mapStoreError("runtime_apply_failed", err)
+		}
+		node.Status = s.deriveNodeStatus(node, time.Now().UTC())
+		s.auditBestEffort(ctx, model.AuditLogEvent{
+			TenantID:   in.TenantID,
+			ActorType:  "system",
+			ActorSub:   actor.Subject,
+			Action:     "node.bootstrap_online",
+			TargetType: "node",
+			TargetID:   in.NodeID,
+			Metadata: map[string]any{
+				"source":           "runtime.apply",
+				"runtime_backend":  runtime.RuntimeBackend,
+				"runtime_protocol": runtime.RuntimeProtocol,
+				"listen_port":      runtime.ListenPort,
+			},
+		})
+		s.auditBestEffort(ctx, model.AuditLogEvent{
+			TenantID:   in.TenantID,
+			ActorType:  "system",
+			ActorSub:   actor.Subject,
+			Action:     "node.heartbeat_accepted",
+			TargetType: "node",
+			TargetID:   in.NodeID,
+			Metadata: map[string]any{
+				"status": node.Status,
+				"source": "runtime.apply",
+			},
+		})
 	}
 
 	s.auditBestEffort(ctx, model.AuditLogEvent{
