@@ -18,6 +18,10 @@ Public ports:
 - `80/443` via Caddy
 - `RUNTIME_VLESS_PORT` (default `8443`) via Xray for client traffic
 
+Runtime networking requirement:
+- `xray` must be attached to both `backend` and `public` compose networks.
+- `backend` is used for internal control-plane access, `public` is required for external client ingress on `RUNTIME_VLESS_PORT`.
+
 ## One-click bootstrap
 
 Run directly on a clean VPS:
@@ -108,3 +112,4 @@ bash deploy/uninstall.sh --purge-data --purge-state
 - `deploy/scripts/bootstrap-owner.sh` - owner scope + admin magic URL flow
 - `deploy/scripts/bootstrap-runtime.sh` - node runtime config generation/apply
 - `deploy/scripts/generate-reality-keys.sh` - REALITY x25519 keypair generation
+

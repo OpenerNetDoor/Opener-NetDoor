@@ -53,6 +53,16 @@ compose up -d --force-recreate xray >/dev/null
 container_id="$(compose ps -q xray)"
 [[ -n "${container_id}" ]] || die "xray container is not running"
 
+backend_network_name="${COMPOSE_PROJECT_NAME:-openernetdoor}_backend"
+public_network_name="${COMPOSE_PROJECT_NAME:-openernetdoor}_public"
+networks_json="$(docker inspect -f '{{json .NetworkSettings.Networks}}' "${container_id}" 2>/dev/null || true)"
+if [[ "${networks_json}" != *"\"${backend_network_name}\""* ]]; then
+  die "xray container is not attached to backend network (${backend_network_name})"
+fi
+if [[ "${networks_json}" != *"\"${public_network_name}\""* ]]; then
+  die "xray container is not attached to public network (${public_network_name})"
+fi
+
 port_mappings="$(docker inspect -f '{{json .NetworkSettings.Ports}}' "${container_id}" 2>/dev/null || true)"
 if [[ "${port_mappings}" != *"${RUNTIME_VLESS_PORT:-8443}/tcp"* ]]; then
   die "xray port mapping for ${RUNTIME_VLESS_PORT:-8443}/tcp is missing"
@@ -89,3 +99,6 @@ if [[ "${public_target}" != "127.0.0.1" && "${public_target}" != "localhost" ]];
 fi
 
 log "xray runtime is listening on 0.0.0.0:${RUNTIME_VLESS_PORT:-8443} (host publish confirmed)"
+
+
+

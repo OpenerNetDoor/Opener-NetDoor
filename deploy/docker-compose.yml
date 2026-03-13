@@ -153,6 +153,7 @@ services:
         condition: service_started
     networks:
       - backend
+      - public
 
   caddy:
     image: caddy:2.8-alpine
@@ -182,3 +183,4 @@ networks:
   public:
   backend:
     internal: true
+
